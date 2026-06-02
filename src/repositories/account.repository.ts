@@ -1,10 +1,13 @@
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
-import { accountTable } from '../schema/account.js';
-import type { AccountRow, NewAccountRow } from '../schema/account.js';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+
 import { accountLineTable } from '../schema/account-line.js';
 import type { AccountLineRow } from '../schema/account-line.js';
+import { accountTable } from '../schema/account.js';
+import type { AccountRow, NewAccountRow } from '../schema/account.js';
 
 /** Cuenta con su total derivado de las líneas (no se persiste — concurrencia-safe). */
 export interface AccountWithTotal extends AccountRow {
@@ -56,9 +59,7 @@ export class AccountRepository {
       source: consultationId ? 'consultation' : source,
       status: 'open',
     } as unknown as NewAccountRow;
-    const created = await this.db.ormQuery((tx) =>
-      tx.insert(accountTable).values(row).returning()
-    );
+    const created = await this.db.ormQuery((tx) => tx.insert(accountTable).values(row).returning());
     return created[0];
   }
 
@@ -67,11 +68,10 @@ export class AccountRepository {
    * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
    * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
    */
-  async listWithTotals({
-    from,
-    to,
-  }: { from?: string; to?: string } = {}): Promise<AccountWithTotal[]> {
-    const conditions = [];
+  async listWithTotals({ from, to }: { from?: string; to?: string } = {}): Promise<
+    AccountWithTotal[]
+  > {
+    const conditions: SQL[] = [];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
 
@@ -127,9 +127,7 @@ export class AccountRepository {
   }
 
   async create({ data }: { data: NewAccountRow }): Promise<AccountRow[]> {
-    return this.db.ormQuery((tx) =>
-      tx.insert(accountTable).values(data).returning()
-    );
+    return this.db.ormQuery((tx) => tx.insert(accountTable).values(data).returning());
   }
 
   async update({ id, data }: { id: string; data: Partial<NewAccountRow> }): Promise<AccountRow[]> {
@@ -139,8 +137,6 @@ export class AccountRepository {
   }
 
   async delete({ id }: { id: string }): Promise<void> {
-    await this.db.ormQuery((tx) =>
-      tx.delete(accountTable).where(eq(accountTable.id, id))
-    );
+    await this.db.ormQuery((tx) => tx.delete(accountTable).where(eq(accountTable.id, id)));
   }
 }

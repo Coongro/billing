@@ -1,9 +1,9 @@
 import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
+import { AccountDetailDrawer } from '../../components/AccountDetailDrawer.js';
 import { useBillingAccounts } from '../../data/useBillingAccounts.js';
 import type { BillingAccountRow } from '../../data/useBillingAccounts.js';
-import { AccountDetailDrawer } from '../../components/AccountDetailDrawer.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
 
 const React = getHostReact();
@@ -57,7 +57,8 @@ export function CobrosView() {
       {
         key: 'fecha',
         header: 'Fecha',
-        render: (r: BillingAccountRow) => h('span', { className: 'font-mono' }, formatDate(r.openedAt)),
+        render: (r: BillingAccountRow) =>
+          h('span', { className: 'font-mono' }, formatDate(r.openedAt)),
       },
       {
         key: 'cliente',
@@ -170,7 +171,7 @@ export function CobrosView() {
         ? [detailRow.clientName, detailRow.petName].filter(Boolean).join(' · ')
         : undefined,
       onClose: () => setDetailId(null),
-      onChanged: reload,
+      onChanged: () => void reload(),
     })
   );
 }

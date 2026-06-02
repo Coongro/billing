@@ -1,5 +1,5 @@
-import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const accountTable = pgTable('module_billing_accounts', {
   id: uuid('id').primaryKey().notNull(),
@@ -9,7 +9,9 @@ export const accountTable = pgTable('module_billing_accounts', {
   source: text('source').notNull(),
   status: text('status').notNull(),
   notes: text('notes'),
-  opened_at: timestamp('opened_at', { mode: 'string' }).notNull().default(sql`now()`),
+  opened_at: timestamp('opened_at', { mode: 'string' })
+    .notNull()
+    .default(sql`now()`),
 });
 
 export type AccountRow = typeof accountTable.$inferSelect;

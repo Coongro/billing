@@ -1,6 +1,8 @@
-import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
+import { and, eq } from 'drizzle-orm';
+
 import { accountLineTable } from '../schema/account-line.js';
 import type { AccountLineRow, NewAccountLineRow } from '../schema/account-line.js';
 
@@ -57,8 +59,7 @@ export class AccountLineRepository {
       );
       if (dup[0]) return dup[0];
     }
-    const computedSubtotal =
-      subtotal ?? String(Number(quantity || '1') * Number(unitPrice || '0'));
+    const computedSubtotal = subtotal ?? String(Number(quantity || '1') * Number(unitPrice || '0'));
     // Cast: drizzle $inferInsert omite columnas nullable (bug conocido); runtime OK.
     const row = {
       id: randomUUID(),
@@ -85,20 +86,22 @@ export class AccountLineRepository {
   }
 
   async create({ data }: { data: NewAccountLineRow }): Promise<AccountLineRow[]> {
-    return this.db.ormQuery((tx) =>
-      tx.insert(accountLineTable).values(data).returning()
-    );
+    return this.db.ormQuery((tx) => tx.insert(accountLineTable).values(data).returning());
   }
 
-  async update({ id, data }: { id: string; data: Partial<NewAccountLineRow> }): Promise<AccountLineRow[]> {
+  async update({
+    id,
+    data,
+  }: {
+    id: string;
+    data: Partial<NewAccountLineRow>;
+  }): Promise<AccountLineRow[]> {
     return this.db.ormQuery((tx) =>
       tx.update(accountLineTable).set(data).where(eq(accountLineTable.id, id)).returning()
     );
   }
 
   async delete({ id }: { id: string }): Promise<void> {
-    await this.db.ormQuery((tx) =>
-      tx.delete(accountLineTable).where(eq(accountLineTable.id, id))
-    );
+    await this.db.ormQuery((tx) => tx.delete(accountLineTable).where(eq(accountLineTable.id, id)));
   }
 }

@@ -12,7 +12,9 @@ const MODULE_ID = '@coongro/billing';
 function toast(title: string, message: string, type: 'success' | 'info'): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const host = (globalThis as any).coongro?.toast as
-    | { show?: (opts: { title: string; message: string; type?: string; moduleId?: string }) => void }
+    | {
+        show?: (opts: { title: string; message: string; type?: string; moduleId?: string }) => void;
+      }
     | undefined;
   host?.show?.({ title, message, type, moduleId: MODULE_ID });
 }
@@ -50,7 +52,12 @@ interface AccountDetailDrawerProps {
 
 const mono = { fontFamily: 'var(--cg-font-mono, SF Mono, Menlo, monospace)' };
 
-export function AccountDetailDrawer({ accountId, subtitle, onClose, onChanged }: AccountDetailDrawerProps) {
+export function AccountDetailDrawer({
+  accountId,
+  subtitle,
+  onClose,
+  onChanged,
+}: AccountDetailDrawerProps) {
   const [detail, setDetail] = useState<AccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -110,10 +117,16 @@ export function AccountDetailDrawer({ accountId, subtitle, onClose, onChanged }:
 
   return h(
     UI.Sheet,
-    { open: accountId !== null, onOpenChange: (v: boolean) => !v && onClose(), side: 'right' } as any,
+    {
+      open: accountId !== null,
+      onOpenChange: (v: boolean) => !v && onClose(),
+      side: 'right',
+    } as any,
     h(
       UI.SheetContent,
-      { style: { width: '460px', maxWidth: '92vw', display: 'flex', flexDirection: 'column' } } as any,
+      {
+        style: { width: '460px', maxWidth: '92vw', display: 'flex', flexDirection: 'column' },
+      } as any,
 
       h(
         UI.SheetHeader,
@@ -181,14 +194,24 @@ export function AccountDetailDrawer({ accountId, subtitle, onClose, onChanged }:
                       h('div', { style: { fontSize: '13px', fontWeight: 500 } }, l.description),
                       h(
                         'div',
-                        { style: { fontSize: '11.5px', color: 'var(--cg-text-muted)', marginTop: '2px' } },
+                        {
+                          style: {
+                            fontSize: '11.5px',
+                            color: 'var(--cg-text-muted)',
+                            marginTop: '2px',
+                          },
+                        },
                         `${SOURCE_LABEL[l.source_type] ?? l.source_type} · ${l.quantity} × ${formatMoney(l.unit_price)}`
                       )
                     ),
                     h(
                       'div',
                       { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                      h('span', { style: { ...mono, fontWeight: 600, fontSize: '13px' } }, formatMoney(l.subtotal)),
+                      h(
+                        'span',
+                        { style: { ...mono, fontWeight: 600, fontSize: '13px' } },
+                        formatMoney(l.subtotal)
+                      ),
                       !isClosed &&
                         h(
                           UI.IconButton,
@@ -222,7 +245,11 @@ export function AccountDetailDrawer({ accountId, subtitle, onClose, onChanged }:
             },
           },
           h('span', { style: { fontSize: '13px', color: 'var(--cg-text-muted)' } }, 'Total'),
-          h('span', { style: { ...mono, fontSize: '20px', fontWeight: 700 } }, formatMoney(detail?.total))
+          h(
+            'span',
+            { style: { ...mono, fontSize: '20px', fontWeight: 700 } },
+            formatMoney(detail?.total)
+          )
         ),
         h(
           'div',

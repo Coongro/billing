@@ -41,7 +41,10 @@ export interface UseBillingAccountsResult {
  * no están, igual muestra la cuenta con "—" (billing es kit-agnóstico). `range`
  * filtra por fecha en la base (escalable). Pasar un `range` memoizado para evitar recargas.
  */
-export function useBillingAccounts(range?: { from?: string; to?: string }): UseBillingAccountsResult {
+export function useBillingAccounts(range?: {
+  from?: string;
+  to?: string;
+}): UseBillingAccountsResult {
   const [rows, setRows] = useState<BillingAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,9 +62,10 @@ export function useBillingAccounts(range?: { from?: string; to?: string }): UseB
         from,
         to,
       });
+      type NamedRow = { id: string; name: string };
       const [contacts, pets] = await Promise.all([
-        actions.execute<Array<{ id: string; name: string }>>('contacts.list').catch(() => []),
-        actions.execute<Array<{ id: string; name: string }>>('patients.pets.list').catch(() => []),
+        actions.execute<NamedRow[]>('contacts.list').catch((): NamedRow[] => []),
+        actions.execute<NamedRow[]>('patients.pets.list').catch((): NamedRow[] => []),
       ]);
       const contactName = new Map((contacts ?? []).map((c) => [c.id, c.name]));
       const petName = new Map((pets ?? []).map((p) => [p.id, p.name]));
