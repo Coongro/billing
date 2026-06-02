@@ -78,6 +78,57 @@ export class AccountLineRepository {
     return created[0];
   }
 
+  /**
+   * Reemplaza TODAS las líneas de un origen (`sourceType`) en la cuenta por el set
+   * provisto, en una sola operación. Reutilizable por cualquier productor que "posea"
+   * un conjunto de líneas (servicios de una consulta, ítems de un carrito): re-sincroniza
+   * sin duplicar al re-guardar y sin tocar líneas de otros orígenes (ej. vacunas) de la
+   * misma cuenta. Pasar `lines` vacío limpia las de ese origen.
+   */
+  async syncSource({
+    accountId,
+    sourceType,
+    lines,
+  }: {
+    accountId: string;
+    sourceType: string;
+    lines: Array<{
+      productId?: string | null;
+      description: string;
+      quantity?: string;
+      unitPrice: string;
+      subtotal?: string;
+      sourceRef?: string | null;
+    }>;
+  }): Promise<AccountLineRow[]> {
+    await this.db.ormQuery((tx) =>
+      tx
+        .delete(accountLineTable)
+        .where(
+          and(
+            eq(accountLineTable.account_id, accountId),
+            eq(accountLineTable.source_type, sourceType)
+          )
+        )
+    );
+    const created: AccountLineRow[] = [];
+    for (const l of lines) {
+      created.push(
+        await this.add({
+          accountId,
+          sourceType,
+          productId: l.productId ?? null,
+          description: l.description,
+          quantity: l.quantity ?? '1',
+          unitPrice: l.unitPrice,
+          subtotal: l.subtotal,
+          sourceRef: l.sourceRef ?? null,
+        })
+      );
+    }
+    return created;
+  }
+
   async getById({ id }: { id: string }): Promise<AccountLineRow | undefined> {
     const rows = await this.db.ormQuery((tx) =>
       tx.select().from(accountLineTable).where(eq(accountLineTable.id, id)).limit(1)
