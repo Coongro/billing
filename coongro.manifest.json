@@ -1,0 +1,28 @@
+{
+  "id": "billing",
+  "version": "0.1.0",
+  "apiVersion": "2.0",
+  "displayName": "Cobros",
+  "assets": {
+    "styles": [
+      "./dist/assets/tailwind.css",
+      "./dist/assets/fontawesome/css/all.min.css"
+    ]
+  },
+  "contributes": {
+    "menus": [],
+    "views": [],
+    "repositories": [
+      {
+        "module": "./dist/repositories/account.repository.js",
+        "export": "AccountRepository",
+        "prefix": "billing.accounts"
+      },
+      {
+        "module": "./dist/repositories/account-line.repository.js",
+        "export": "AccountLineRepository",
+        "prefix": "billing.lines"
+      }
+    ]
+  }
+}
