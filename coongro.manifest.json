@@ -10,8 +10,23 @@
     ]
   },
   "contributes": {
-    "menus": [],
-    "views": [],
+    "menus": [
+      {
+        "path": "Cobros",
+        "order": 6,
+        "icon": "assets/icons/receipt.svg",
+        "color": "#0EA5E9",
+        "viewId": "billing.cobros.open"
+      }
+    ],
+    "views": [
+      {
+        "id": "billing.cobros.open",
+        "title": "Cobros",
+        "component": "./dist/views/cobros/index.js",
+        "export": "CobrosView"
+      }
+    ],
     "repositories": [
       {
         "module": "./dist/repositories/account.repository.js",

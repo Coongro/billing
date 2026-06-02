@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { accountTable } from '../schema/account.js';
@@ -62,23 +62,36 @@ export class AccountRepository {
     return created[0];
   }
 
-  /** Lista de cuentas con total derivado (para la vista Cobros y los ingresos). */
-  async listWithTotals(): Promise<AccountWithTotal[]> {
-    const [accounts, lines] = await Promise.all([
-      this.db.ormQuery((tx) => tx.select().from(accountTable)),
-      this.db.ormQuery((tx) => tx.select().from(accountLineTable)),
-    ]);
-    const totalByAccount = new Map<string, number>();
-    for (const l of lines as AccountLineRow[]) {
-      totalByAccount.set(
-        l.account_id,
-        (totalByAccount.get(l.account_id) ?? 0) + Number(l.subtotal || 0)
-      );
-    }
-    return (accounts as AccountRow[]).map((a) => ({
-      ...a,
-      total: String(totalByAccount.get(a.id) ?? 0),
-    }));
+  /**
+   * Lista de cuentas con total derivado (para la vista Cobros y los ingresos).
+   * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
+   * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
+   */
+  async listWithTotals({
+    from,
+    to,
+  }: { from?: string; to?: string } = {}): Promise<AccountWithTotal[]> {
+    const conditions = [];
+    if (from) conditions.push(gte(accountTable.opened_at, from));
+    if (to) conditions.push(lte(accountTable.opened_at, to));
+
+    const accounts = (await this.db.ormQuery((tx) => {
+      const q = tx.select().from(accountTable);
+      return conditions.length ? q.where(and(...conditions)) : q;
+    })) as AccountRow[];
+
+    const totals = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: accountLineTable.account_id,
+          total: sql<string>`coalesce(sum(${accountLineTable.subtotal}::numeric), 0)::text`,
+        })
+        .from(accountLineTable)
+        .groupBy(accountLineTable.account_id)
+    )) as Array<{ account_id: string; total: string }>;
+
+    const totalByAccount = new Map(totals.map((t) => [t.account_id, t.total]));
+    return accounts.map((a) => ({ ...a, total: totalByAccount.get(a.id) ?? '0' }));
   }
 
   /** Cuenta + sus líneas + total (para el detalle). */
