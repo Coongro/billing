@@ -8,6 +8,7 @@ import { accountLineTable } from '../schema/account-line.js';
 import type { AccountLineRow } from '../schema/account-line.js';
 import { accountTable } from '../schema/account.js';
 import type { AccountRow, NewAccountRow } from '../schema/account.js';
+import { toIsoUtc } from '../utils/datetime.js';
 
 /** Cuenta con su total derivado de las líneas (no se persiste — concurrencia-safe). */
 export interface AccountWithTotal extends AccountRow {
@@ -31,20 +32,25 @@ export class AccountRepository {
     petId = null,
     consultationId = null,
     source = 'counter',
+    openedAt = null,
   }: {
     contactId?: string | null;
     petId?: string | null;
     consultationId?: string | null;
     source?: string;
+    /** Fecha de negocio del cobro (ej. la fecha de la consulta). Default: ahora (now()). */
+    openedAt?: string | null;
   }): Promise<AccountRow> {
     if (consultationId) {
+      // Dedup por consultation_id SIN filtrar por estado: una consulta tiene UNA sola
+      // cuenta (la de su visita). Si filtráramos por status='open', una cuenta ya cerrada
+      // haría que un re-sync (o el backfill) creara una segunda cuenta para la misma
+      // consulta → cuentas duplicadas y doble conteo de ingresos.
       const existing = await this.db.ormQuery((tx) =>
         tx
           .select()
           .from(accountTable)
-          .where(
-            and(eq(accountTable.consultation_id, consultationId), eq(accountTable.status, 'open'))
-          )
+          .where(eq(accountTable.consultation_id, consultationId))
           .limit(1)
       );
       if (existing[0]) return existing[0];
@@ -58,6 +64,10 @@ export class AccountRepository {
       consultation_id: consultationId,
       source: consultationId ? 'consultation' : source,
       status: 'open',
+      // opened_at SIEMPRE en ISO/UTC: los reportes por fecha (toDateKey/luxon) necesitan
+      // un formato parseable consistente. El default now() de Postgres es local-sin-TZ y
+      // no parsea como ISO. `openedAt` = fecha de negocio (ej. fecha de la consulta).
+      opened_at: openedAt ?? new Date().toISOString(),
     } as unknown as NewAccountRow;
     const created = await this.db.ormQuery((tx) => tx.insert(accountTable).values(row).returning());
     return created[0];
@@ -91,7 +101,11 @@ export class AccountRepository {
     )) as Array<{ account_id: string; total: string }>;
 
     const totalByAccount = new Map(totals.map((t) => [t.account_id, t.total]));
-    return accounts.map((a) => ({ ...a, total: totalByAccount.get(a.id) ?? '0' }));
+    return accounts.map((a) => ({
+      ...a,
+      opened_at: toIsoUtc(a.opened_at),
+      total: totalByAccount.get(a.id) ?? '0',
+    }));
   }
 
   /** Cuenta + sus líneas + total (para el detalle). */
