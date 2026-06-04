@@ -37,6 +37,11 @@
         "module": "./dist/repositories/account-line.repository.js",
         "export": "AccountLineRepository",
         "prefix": "billing.lines"
+      },
+      {
+        "module": "./dist/repositories/payment.repository.js",
+        "export": "PaymentRepository",
+        "prefix": "billing.payments"
       }
     ]
   }

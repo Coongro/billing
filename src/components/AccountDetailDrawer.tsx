@@ -1,7 +1,7 @@
 import { getHostReact, getHostUI, actions } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
-import { formatMoney } from '../utils/money.js';
+import { formatMoney, formatDate } from '../utils/money.js';
 
 const React = getHostReact();
 const { useState, useEffect, useCallback } = React;
@@ -27,10 +27,20 @@ interface AccountLine {
   subtotal: string;
   source_type: string;
 }
+interface Payment {
+  id: string;
+  amount: string;
+  method: string;
+  paid_at: string;
+}
 interface AccountDetail {
   account: { id: string; status: string; source: string };
   lines: AccountLine[];
   total: string;
+  paid: string;
+  balance: string;
+  paymentStatus: string;
+  payments: Payment[];
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -40,17 +50,35 @@ const SOURCE_LABEL: Record<string, string> = {
   product: 'Producto',
 };
 
+// Medios de cobro. Castellano rioplatense; el set es config de negocio, no enum de DB.
+const METHOD_OPTIONS = [
+  { value: 'efectivo', label: 'Efectivo' },
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'debito', label: 'Débito' },
+  { value: 'credito', label: 'Crédito' },
+];
+const METHOD_LABEL: Record<string, string> = Object.fromEntries(
+  METHOD_OPTIONS.map((o) => [o.value, o.label])
+);
+
 interface AccountDetailDrawerProps {
   /** Cuenta a mostrar; null = cerrado. */
   accountId: string | null;
   /** Encabezado de contexto (cliente · mascota), resuelto por el caller. */
   subtitle?: string;
   onClose: () => void;
-  /** Se llama tras cambios (quitar línea / cerrar cuenta) para refrescar la lista. */
+  /** Se llama tras cambios (línea / pago / cierre) para refrescar la lista. */
   onChanged: () => void;
 }
 
 const mono = { fontFamily: 'var(--cg-font-mono, SF Mono, Menlo, monospace)' };
+const fieldLabel = {
+  display: 'block',
+  fontSize: '11.5px',
+  fontWeight: 600,
+  color: 'var(--cg-text-muted)',
+  marginBottom: '5px',
+};
 
 export function AccountDetailDrawer({
   accountId,
@@ -61,6 +89,10 @@ export function AccountDetailDrawer({
   const [detail, setDetail] = useState<AccountDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showPay, setShowPay] = useState(false);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('efectivo');
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -78,6 +110,9 @@ export function AccountDetailDrawer({
   }, [accountId]);
 
   useEffect(() => {
+    // Reset del estado efímero al cambiar de cuenta (el drawer se reutiliza).
+    setShowPay(false);
+    setConfirmClose(false);
     if (accountId) void load();
     else setDetail(null);
   }, [accountId, load]);
@@ -113,7 +148,95 @@ export function AccountDetailDrawer({
     }
   }, [accountId, onChanged, onClose]);
 
+  const openPayForm = useCallback(() => {
+    const b = detail ? Math.max(0, Number(detail.balance)) : 0;
+    setPayAmount(b > 0 ? String(b) : '');
+    setPayMethod('efectivo');
+    setShowPay(true);
+  }, [detail]);
+
+  const registerPayment = useCallback(
+    async (alsoClose: boolean) => {
+      if (!accountId) return;
+      const amt = Number(payAmount);
+      if (!Number.isFinite(amt) || amt <= 0) {
+        toast('Monto inválido', 'Ingresá un monto mayor a 0.', 'info');
+        return;
+      }
+      setBusy(true);
+      try {
+        await actions.execute('billing.payments.record', {
+          accountId,
+          amount: String(amt),
+          method: payMethod,
+        });
+        if (alsoClose) await actions.execute('billing.accounts.close', { id: accountId });
+        toast(
+          'Cobro registrado',
+          alsoClose ? 'Cuenta cobrada y cerrada.' : `Se registró ${formatMoney(amt)}.`,
+          'success'
+        );
+        setShowPay(false);
+        await load();
+        onChanged();
+        if (alsoClose) onClose();
+      } catch {
+        toast('No se pudo registrar', 'Intentá de nuevo.', 'info');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [accountId, payAmount, payMethod, load, onChanged, onClose]
+  );
+
+  const removePayment = useCallback(
+    async (paymentId: string) => {
+      setBusy(true);
+      try {
+        await actions.execute('billing.payments.delete', { id: paymentId });
+        await load();
+        onChanged();
+      } catch {
+        toast('No se pudo anular', 'Intentá de nuevo.', 'info');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, onChanged]
+  );
+
+  const handleClose = useCallback(() => {
+    if (!detail) return;
+    // Cerrar con saldo = fiado: avisar explícito (nunca silencioso), pero permitir.
+    if (Number(detail.balance) > 0.005) setConfirmClose(true);
+    else void closeAccount();
+  }, [detail, closeAccount]);
+
   const isClosed = detail?.account.status === 'closed';
+  const paidNum = Number(detail?.paid ?? 0);
+  const hasBalance = Number(detail?.balance ?? 0) > 0.005;
+  const isPaid = detail?.paymentStatus === 'paid';
+
+  const payRow = (label: string, value: string, opts: { strong?: boolean } = {}) =>
+    h(
+      'div',
+      { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
+      h(
+        'span',
+        {
+          style: {
+            fontSize: '13px',
+            color: opts.strong ? 'var(--cg-text)' : 'var(--cg-text-muted)',
+          },
+        },
+        label
+      ),
+      h(
+        'span',
+        { style: { ...mono, fontWeight: opts.strong ? 700 : 500, fontSize: '13px' } },
+        value
+      )
+    );
 
   return h(
     UI.Sheet,
@@ -230,40 +353,250 @@ export function AccountDetailDrawer({
               )
       ),
 
-      // Total + acciones
+      // Totales + pagos + acciones
       h(
         'div',
         { style: { flexShrink: 0, borderTop: '1px solid var(--cg-border)', padding: '16px 24px' } },
+
+        // Totales
         h(
           'div',
-          {
-            style: {
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              marginBottom: '14px',
-            },
-          },
-          h('span', { style: { fontSize: '13px', color: 'var(--cg-text-muted)' } }, 'Total'),
-          h(
-            'span',
-            { style: { ...mono, fontSize: '20px', fontWeight: 700 } },
-            formatMoney(detail?.total)
-          )
-        ),
-        h(
-          'div',
-          { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end' } },
-          h(UI.Button, { variant: 'outline', onClick: onClose } as any, 'Cerrar'),
-          !isClosed &&
+          { style: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' } },
+          payRow('Total', formatMoney(detail?.total), { strong: !hasBalance && !isPaid }),
+          paidNum > 0 && payRow('Pagado', formatMoney(detail?.paid)),
+          hasBalance &&
             h(
-              UI.Button,
-              { variant: 'brand', disabled: busy, onClick: () => void closeAccount() } as any,
-              h(UI.DynamicIcon, { icon: 'Check', size: 13 } as any),
-              ' Cerrar cuenta'
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  paddingTop: '8px',
+                  marginTop: '2px',
+                  borderTop: '1px dashed var(--cg-border)',
+                },
+              },
+              h('span', { style: { fontSize: '13px', fontWeight: 600 } }, 'Saldo'),
+              h(
+                'span',
+                {
+                  style: { ...mono, fontSize: '20px', fontWeight: 700, color: 'var(--cg-danger)' },
+                },
+                formatMoney(detail?.balance)
+              )
+            ),
+          isPaid &&
+            paidNum > 0 &&
+            h(
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  paddingTop: '8px',
+                  marginTop: '2px',
+                  borderTop: '1px dashed var(--cg-border)',
+                },
+              },
+              h(UI.Badge, { variant: 'paid' } as any, 'Pagada')
             )
-        )
-      )
+        ),
+
+        // Mini-lista de pagos
+        detail &&
+          detail.payments.length > 0 &&
+          h(
+            'div',
+            {
+              style: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
+            },
+            h(
+              'div',
+              {
+                style: {
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--cg-text-muted)',
+                },
+              },
+              'Pagos'
+            ),
+            ...detail.payments.map((p) =>
+              h(
+                'div',
+                {
+                  key: p.id,
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                  },
+                },
+                h(
+                  'div',
+                  null,
+                  h('span', { style: { fontSize: '12.5px' } }, METHOD_LABEL[p.method] ?? p.method),
+                  h(
+                    'span',
+                    {
+                      style: {
+                        fontSize: '11.5px',
+                        color: 'var(--cg-text-muted)',
+                        marginLeft: '6px',
+                      },
+                    },
+                    formatDate(p.paid_at)
+                  )
+                ),
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                  h(
+                    'span',
+                    { style: { ...mono, fontWeight: 600, fontSize: '12.5px' } },
+                    formatMoney(p.amount)
+                  ),
+                  h(
+                    UI.IconButton,
+                    {
+                      variant: 'ghost',
+                      size: 'sm',
+                      disabled: busy,
+                      'aria-label': 'Anular pago',
+                      onClick: () => void removePayment(p.id),
+                    } as any,
+                    h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
+                  )
+                )
+              )
+            )
+          ),
+
+        // Form de cobro inline, o botones de acción
+        showPay
+          ? h(
+              'div',
+              { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+              h(
+                'div',
+                null,
+                h('label', { style: fieldLabel }, 'Cuánto cobrás'),
+                h(UI.Input, {
+                  type: 'number',
+                  size: 'sm',
+                  min: 0,
+                  step: '0.01',
+                  value: payAmount,
+                  onChange: (e: any) => setPayAmount(e.target.value),
+                } as any)
+              ),
+              h(
+                'div',
+                null,
+                h('label', { style: fieldLabel }, 'Con qué'),
+                h(UI.SegmentedControl, {
+                  value: payMethod,
+                  options: METHOD_OPTIONS,
+                  onChange: (v: string) => setPayMethod(v),
+                  size: 'sm',
+                  'aria-label': 'Medio de pago',
+                } as any)
+              ),
+              h(
+                'div',
+                {
+                  style: {
+                    display: 'flex',
+                    gap: '8px',
+                    justifyContent: 'flex-end',
+                    flexWrap: 'wrap',
+                  },
+                },
+                h(
+                  UI.Button,
+                  {
+                    variant: 'ghost',
+                    size: 'sm',
+                    disabled: busy,
+                    onClick: () => setShowPay(false),
+                  } as any,
+                  'Cancelar'
+                ),
+                !isClosed &&
+                  h(
+                    UI.Button,
+                    {
+                      variant: 'outline',
+                      size: 'sm',
+                      disabled: busy,
+                      onClick: () => void registerPayment(true),
+                    } as any,
+                    'Cobrar y cerrar'
+                  ),
+                h(
+                  UI.Button,
+                  {
+                    variant: 'brand',
+                    size: 'sm',
+                    disabled: busy,
+                    onClick: () => void registerPayment(false),
+                  } as any,
+                  'Registrar cobro'
+                )
+              )
+            )
+          : h(
+              'div',
+              {
+                style: {
+                  display: 'flex',
+                  gap: '8px',
+                  justifyContent: 'flex-end',
+                  flexWrap: 'wrap',
+                },
+              },
+              h(UI.Button, { variant: 'outline', onClick: onClose } as any, 'Cerrar'),
+              !isClosed &&
+                h(
+                  UI.Button,
+                  { variant: 'outline', disabled: busy, onClick: handleClose } as any,
+                  h(UI.DynamicIcon, { icon: 'Check', size: 13 } as any),
+                  ' Cerrar cuenta'
+                ),
+              hasBalance &&
+                h(
+                  UI.Button,
+                  { variant: 'brand', disabled: busy, onClick: openPayForm } as any,
+                  h(UI.DynamicIcon, { icon: 'Wallet', size: 13 } as any),
+                  ' Registrar cobro'
+                )
+            )
+      ),
+
+      // Aviso de cierre con saldo (fiado)
+      h(UI.ConfirmDialog, {
+        open: confirmClose,
+        onOpenChange: setConfirmClose,
+        title: 'Cerrar con saldo pendiente',
+        description: h(
+          'span',
+          null,
+          'Queda un saldo de ',
+          h('strong', null, formatMoney(detail?.balance)),
+          ' sin cobrar (fiado). La cuenta se cierra igual y vas a poder registrar el cobro más tarde. ¿Confirmás?'
+        ),
+        confirmLabel: 'Cerrar igual',
+        confirmVariant: 'brand',
+        loading: busy,
+        onConfirm: () => {
+          setConfirmClose(false);
+          void closeAccount();
+        },
+      } as any)
     )
   );
 }

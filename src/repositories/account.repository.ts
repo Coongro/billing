@@ -8,11 +8,23 @@ import { accountLineTable } from '../schema/account-line.js';
 import type { AccountLineRow } from '../schema/account-line.js';
 import { accountTable } from '../schema/account.js';
 import type { AccountRow, NewAccountRow } from '../schema/account.js';
+import { paymentTable } from '../schema/payment.js';
+import type { PaymentRow } from '../schema/payment.js';
 import { toIsoUtc } from '../utils/datetime.js';
+import { derivePaymentSummary } from '../utils/payment-status.js';
+import type { PaymentStatus } from '../utils/payment-status.js';
 
-/** Cuenta con su total derivado de las líneas (no se persiste — concurrencia-safe). */
+/**
+ * Cuenta con total (de líneas) y estado de cobro (de pagos) DERIVADOS — nada se persiste,
+ * se calcula por SQL/agregación para ser concurrencia-safe. Ver derivePaymentSummary.
+ */
 export interface AccountWithTotal extends AccountRow {
   total: string;
+  /** SUM de pagos. */
+  paid: string;
+  /** total − pagado (nunca negativo). */
+  balance: string;
+  paymentStatus: PaymentStatus;
 }
 
 export class AccountRepository {
@@ -100,20 +112,39 @@ export class AccountRepository {
         .groupBy(accountLineTable.account_id)
     )) as Array<{ account_id: string; total: string }>;
 
+    // Cobrado por cuenta (SUM de pagos, mismo patrón GROUP BY que el total).
+    const paidRows = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: paymentTable.account_id,
+          paid: sql<string>`coalesce(sum(${paymentTable.amount}::numeric), 0)::text`,
+        })
+        .from(paymentTable)
+        .groupBy(paymentTable.account_id)
+    )) as Array<{ account_id: string; paid: string }>;
+
     const totalByAccount = new Map(totals.map((t) => [t.account_id, t.total]));
-    return accounts.map((a) => ({
-      ...a,
-      opened_at: toIsoUtc(a.opened_at),
-      total: totalByAccount.get(a.id) ?? '0',
-    }));
+    const paidByAccount = new Map(paidRows.map((p) => [p.account_id, p.paid]));
+    return accounts.map((a) => {
+      const total = totalByAccount.get(a.id) ?? '0';
+      const summary = derivePaymentSummary(total, paidByAccount.get(a.id) ?? '0');
+      return { ...a, opened_at: toIsoUtc(a.opened_at), total, ...summary };
+    });
   }
 
-  /** Cuenta + sus líneas + total (para el detalle). */
-  async getWithLines({
-    id,
-  }: {
-    id: string;
-  }): Promise<{ account: AccountRow; lines: AccountLineRow[]; total: string } | undefined> {
+  /** Cuenta + líneas + total + estado de cobro + pagos (para el detalle / drawer). */
+  async getWithLines({ id }: { id: string }): Promise<
+    | {
+        account: AccountRow;
+        lines: AccountLineRow[];
+        total: string;
+        paid: string;
+        balance: string;
+        paymentStatus: PaymentStatus;
+        payments: PaymentRow[];
+      }
+    | undefined
+  > {
     const accountRows = await this.db.ormQuery((tx) =>
       tx.select().from(accountTable).where(eq(accountTable.id, id)).limit(1)
     );
@@ -122,8 +153,21 @@ export class AccountRepository {
     const lines = (await this.db.ormQuery((tx) =>
       tx.select().from(accountLineTable).where(eq(accountLineTable.account_id, id))
     )) as AccountLineRow[];
+    const payments = (await this.db.ormQuery((tx) =>
+      tx.select().from(paymentTable).where(eq(paymentTable.account_id, id))
+    )) as PaymentRow[];
     const total = lines.reduce((s, l) => s + Number(l.subtotal || 0), 0);
-    return { account, lines, total: String(total) };
+    const paidNum = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const summary = derivePaymentSummary(total, paidNum);
+    return {
+      account,
+      lines,
+      total: String(total),
+      ...summary,
+      payments: payments
+        .map((p) => ({ ...p, paid_at: toIsoUtc(p.paid_at) }))
+        .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1)),
+    };
   }
 
   /** Cierra la cuenta (status='closed'). */

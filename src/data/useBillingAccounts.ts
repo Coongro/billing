@@ -13,6 +13,9 @@ export interface BillingAccountRow {
   status: string; // 'open' | 'closed'
   openedAt: string;
   total: string;
+  paid: string;
+  balance: string;
+  paymentStatus: string; // 'na' | 'unpaid' | 'partial' | 'paid'
   clientName: string;
   petName: string | null;
 }
@@ -26,6 +29,9 @@ interface RawAccount {
   status: string;
   opened_at: string;
   total: string;
+  paid: string;
+  balance: string;
+  paymentStatus: string;
 }
 
 export interface UseBillingAccountsResult {
@@ -79,6 +85,9 @@ export function useBillingAccounts(range?: {
         status: a.status,
         openedAt: a.opened_at,
         total: a.total,
+        paid: a.paid,
+        balance: a.balance,
+        paymentStatus: a.paymentStatus,
         clientName: a.contact_id ? (contactName.get(a.contact_id) ?? '—') : '—',
         petName: a.pet_id ? (petName.get(a.pet_id) ?? null) : null,
       }));

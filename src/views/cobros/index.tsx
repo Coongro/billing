@@ -78,14 +78,33 @@ export function CobrosView() {
           h(UI.Badge, { variant: 'secondary' } as any, SOURCE_LABEL[r.source] ?? r.source),
       },
       {
+        // Estado de la CUENTA (ciclo de vida de líneas): azul/gris, neutro a propósito —
+        // el verde/ámbar/rojo se reserva para la plata (columna Pago), para no confundir
+        // "cuenta cerrada" con "cobrada".
         key: 'estado',
         header: 'Estado',
         render: (r: BillingAccountRow) =>
           h(
             UI.Badge,
-            { variant: r.status === 'closed' ? 'success' : 'warning' } as any,
+            { variant: r.status === 'closed' ? 'secondary' : 'info' } as any,
             r.status === 'closed' ? 'Cerrada' : 'Abierta'
           ),
+      },
+      {
+        // Estado de PAGO (derivado de los cobros): lo accionable para el mostrador.
+        key: 'pago',
+        header: 'Pago',
+        render: (r: BillingAccountRow) => {
+          if (r.paymentStatus === 'na') return h('span', { className: 'text-cg-text-muted' }, '—');
+          if (r.paymentStatus === 'paid') return h(UI.Badge, { variant: 'paid' } as any, 'Pagada');
+          if (r.paymentStatus === 'partial')
+            return h(
+              UI.Badge,
+              { variant: 'orange' } as any,
+              `Parcial · saldo ${formatMoney(r.balance)}`
+            );
+          return h(UI.Badge, { variant: 'danger-soft' } as any, 'Impaga');
+        },
       },
       {
         key: 'total',
