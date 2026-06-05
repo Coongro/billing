@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, lte, ne, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import { accountLineTable } from '../schema/account-line.js';
@@ -134,17 +134,24 @@ export class AccountRepository {
    * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
    * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
    */
-  async listWithTotals({ from, to }: { from?: string; to?: string } = {}): Promise<
-    AccountWithTotal[]
-  > {
-    const conditions: SQL[] = [];
+  async listWithTotals({
+    from,
+    to,
+    draft = false,
+  }: { from?: string; to?: string; draft?: boolean } = {}): Promise<AccountWithTotal[]> {
+    // Por defecto excluye presupuestos (status='draft'); con draft=true devuelve SOLO esos.
+    const conditions: SQL[] = [
+      draft ? eq(accountTable.status, 'draft') : ne(accountTable.status, 'draft'),
+    ];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
 
-    const accounts = (await this.db.ormQuery((tx) => {
-      const q = tx.select().from(accountTable);
-      return conditions.length ? q.where(and(...conditions)) : q;
-    })) as AccountRow[];
+    const accounts = (await this.db.ormQuery((tx) =>
+      tx
+        .select()
+        .from(accountTable)
+        .where(and(...conditions))
+    )) as AccountRow[];
 
     const { totalBy, paidBy } = await this.accountTotals();
     return accounts.map((a) => {
@@ -234,6 +241,58 @@ export class AccountRepository {
     return this.db.ormQuery((tx) =>
       tx.update(accountTable).set({ status: 'closed' }).where(eq(accountTable.id, id)).returning()
     );
+  }
+
+  /**
+   * Crea un presupuesto vacío: una cuenta en estado 'draft' (no es cobro todavía).
+   * Se llena con líneas (lines.add) y luego se promueve con convertToCharge.
+   */
+  async createDraft({
+    contactId = null,
+    petId = null,
+  }: {
+    contactId?: string | null;
+    petId?: string | null;
+  }): Promise<AccountRow> {
+    const row = {
+      id: randomUUID(),
+      contact_id: contactId,
+      pet_id: petId,
+      consultation_id: null,
+      source: 'counter',
+      status: 'draft',
+      opened_at: new Date().toISOString(),
+    } as unknown as NewAccountRow;
+    const created = await this.db.ormQuery((tx) => tx.insert(accountTable).values(row).returning());
+    return created[0];
+  }
+
+  /**
+   * Promueve un presupuesto a cuenta de cobro viva: status 'draft'→'open' y `opened_at`=ahora
+   * (la fecha del cobro es la de la conversión, no la del borrador). Las líneas ya están — no
+   * se re-tipea nada (el dolor #1 del rubro). Tras convertir, el cobro vive editable aparte.
+   */
+  async convertToCharge({ id }: { id: string }): Promise<AccountRow[]> {
+    return this.db.ormQuery((tx) =>
+      tx
+        .update(accountTable)
+        // Cast: drizzle omite columnas con default (opened_at) del tipo de update — mismo
+        // bug de pgSchema que en los inserts. El runtime actualiza igual.
+        .set({
+          status: 'open',
+          opened_at: new Date().toISOString(),
+        } as unknown as Partial<AccountRow>)
+        .where(eq(accountTable.id, id))
+        .returning()
+    );
+  }
+
+  /** Borra una cuenta junto con sus líneas (para descartar un presupuesto). */
+  async deleteWithLines({ id }: { id: string }): Promise<void> {
+    await this.db.ormQuery((tx) =>
+      tx.delete(accountLineTable).where(eq(accountLineTable.account_id, id))
+    );
+    await this.db.ormQuery((tx) => tx.delete(accountTable).where(eq(accountTable.id, id)));
   }
 
   async getById({ id }: { id: string }): Promise<AccountRow | undefined> {
