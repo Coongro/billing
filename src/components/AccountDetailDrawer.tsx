@@ -92,7 +92,6 @@ export function AccountDetailDrawer({
   const [showPay, setShowPay] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
-  const [confirmClose, setConfirmClose] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -112,7 +111,6 @@ export function AccountDetailDrawer({
   useEffect(() => {
     // Reset del estado efímero al cambiar de cuenta (el drawer se reutiliza).
     setShowPay(false);
-    setConfirmClose(false);
     if (accountId) void load();
     else setDetail(null);
   }, [accountId, load]);
@@ -133,21 +131,6 @@ export function AccountDetailDrawer({
     [load, onChanged]
   );
 
-  const closeAccount = useCallback(async () => {
-    if (!accountId) return;
-    setBusy(true);
-    try {
-      await actions.execute('billing.accounts.close', { id: accountId });
-      toast('Cuenta cerrada', 'El cobro quedó cerrado.', 'success');
-      onChanged();
-      onClose();
-    } catch {
-      toast('No se pudo cerrar', 'Intentá de nuevo.', 'info');
-    } finally {
-      setBusy(false);
-    }
-  }, [accountId, onChanged, onClose]);
-
   const openPayForm = useCallback(() => {
     const b = detail ? Math.max(0, Number(detail.balance)) : 0;
     setPayAmount(b > 0 ? String(b) : '');
@@ -155,39 +138,30 @@ export function AccountDetailDrawer({
     setShowPay(true);
   }, [detail]);
 
-  const registerPayment = useCallback(
-    async (alsoClose: boolean) => {
-      if (!accountId) return;
-      const amt = Number(payAmount);
-      if (!Number.isFinite(amt) || amt <= 0) {
-        toast('Monto inválido', 'Ingresá un monto mayor a 0.', 'info');
-        return;
-      }
-      setBusy(true);
-      try {
-        await actions.execute('billing.payments.record', {
-          accountId,
-          amount: String(amt),
-          method: payMethod,
-        });
-        if (alsoClose) await actions.execute('billing.accounts.close', { id: accountId });
-        toast(
-          'Cobro registrado',
-          alsoClose ? 'Cuenta cobrada y cerrada.' : `Se registró ${formatMoney(amt)}.`,
-          'success'
-        );
-        setShowPay(false);
-        await load();
-        onChanged();
-        if (alsoClose) onClose();
-      } catch {
-        toast('No se pudo registrar', 'Intentá de nuevo.', 'info');
-      } finally {
-        setBusy(false);
-      }
-    },
-    [accountId, payAmount, payMethod, load, onChanged, onClose]
-  );
+  const registerPayment = useCallback(async () => {
+    if (!accountId) return;
+    const amt = Number(payAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast('Monto inválido', 'Ingresá un monto mayor a 0.', 'info');
+      return;
+    }
+    setBusy(true);
+    try {
+      await actions.execute('billing.payments.record', {
+        accountId,
+        amount: String(amt),
+        method: payMethod,
+      });
+      toast('Cobro registrado', `Se registró ${formatMoney(amt)}.`, 'success');
+      setShowPay(false);
+      await load();
+      onChanged();
+    } catch {
+      toast('No se pudo registrar', 'Intentá de nuevo.', 'info');
+    } finally {
+      setBusy(false);
+    }
+  }, [accountId, payAmount, payMethod, load, onChanged]);
 
   const removePayment = useCallback(
     async (paymentId: string) => {
@@ -205,14 +179,6 @@ export function AccountDetailDrawer({
     [load, onChanged]
   );
 
-  const handleClose = useCallback(() => {
-    if (!detail) return;
-    // Cerrar con saldo = fiado: avisar explícito (nunca silencioso), pero permitir.
-    if (Number(detail.balance) > 0.005) setConfirmClose(true);
-    else void closeAccount();
-  }, [detail, closeAccount]);
-
-  const isClosed = detail?.account.status === 'closed';
   const paidNum = Number(detail?.paid ?? 0);
   const hasBalance = Number(detail?.balance ?? 0) > 0.005;
   const isPaid = detail?.paymentStatus === 'paid';
@@ -335,18 +301,17 @@ export function AccountDetailDrawer({
                         { style: { ...mono, fontWeight: 600, fontSize: '13px' } },
                         formatMoney(l.subtotal)
                       ),
-                      !isClosed &&
-                        h(
-                          UI.IconButton,
-                          {
-                            variant: 'ghost',
-                            size: 'sm',
-                            disabled: busy,
-                            'aria-label': `Quitar ${l.description}`,
-                            onClick: () => void removeLine(l.id),
-                          } as any,
-                          h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
-                        )
+                      h(
+                        UI.IconButton,
+                        {
+                          variant: 'ghost',
+                          size: 'sm',
+                          disabled: busy,
+                          'aria-label': `Quitar ${l.description}`,
+                          onClick: () => void removeLine(l.id),
+                        } as any,
+                        h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
+                      )
                     )
                   )
                 )
@@ -526,26 +491,15 @@ export function AccountDetailDrawer({
                   } as any,
                   'Cancelar'
                 ),
-                !isClosed &&
-                  h(
-                    UI.Button,
-                    {
-                      variant: 'outline',
-                      size: 'sm',
-                      disabled: busy,
-                      onClick: () => void registerPayment(true),
-                    } as any,
-                    'Cobrar y cerrar'
-                  ),
                 h(
                   UI.Button,
                   {
                     variant: 'brand',
                     size: 'sm',
                     disabled: busy,
-                    onClick: () => void registerPayment(false),
+                    onClick: () => void registerPayment(),
                   } as any,
-                  'Registrar cobro'
+                  'Cobrar'
                 )
               )
             )
@@ -560,43 +514,15 @@ export function AccountDetailDrawer({
                 },
               },
               h(UI.Button, { variant: 'outline', onClick: onClose } as any, 'Cerrar'),
-              !isClosed &&
-                h(
-                  UI.Button,
-                  { variant: 'outline', disabled: busy, onClick: handleClose } as any,
-                  h(UI.DynamicIcon, { icon: 'Check', size: 13 } as any),
-                  ' Cerrar cuenta'
-                ),
               hasBalance &&
                 h(
                   UI.Button,
                   { variant: 'brand', disabled: busy, onClick: openPayForm } as any,
                   h(UI.DynamicIcon, { icon: 'Wallet', size: 13 } as any),
-                  ' Registrar cobro'
+                  ' Cobrar'
                 )
             )
-      ),
-
-      // Aviso de cierre con saldo (fiado)
-      h(UI.ConfirmDialog, {
-        open: confirmClose,
-        onOpenChange: setConfirmClose,
-        title: 'Cerrar con saldo pendiente',
-        description: h(
-          'span',
-          null,
-          'Queda un saldo de ',
-          h('strong', null, formatMoney(detail?.balance)),
-          ' sin cobrar (fiado). La cuenta se cierra igual y vas a poder registrar el cobro más tarde. ¿Confirmás?'
-        ),
-        confirmLabel: 'Cerrar igual',
-        confirmVariant: 'brand',
-        loading: busy,
-        onConfirm: () => {
-          setConfirmClose(false);
-          void closeAccount();
-        },
-      } as any)
+      )
     )
   );
 }

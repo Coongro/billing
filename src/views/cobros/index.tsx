@@ -11,7 +11,7 @@ const { useState, useMemo } = React;
 const h = React.createElement;
 
 type RangeFilter = 'mes' | '30d' | 'todas';
-type StatusFilter = 'todas' | 'open' | 'closed';
+type PayFilter = 'todas' | 'pendiente' | 'pagada';
 
 function daysAgoKey(days: number): string {
   const t = new Date();
@@ -26,7 +26,7 @@ const SOURCE_LABEL: Record<string, string> = { consultation: 'Consulta', counter
 
 export function CobrosView() {
   const [range, setRange] = useState<RangeFilter>('mes');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
+  const [payFilter, setPayFilter] = useState<PayFilter>('todas');
   const [search, setSearch] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -40,7 +40,9 @@ export function CobrosView() {
 
   const filtered = useMemo(() => {
     let result = rows;
-    if (statusFilter !== 'todas') result = result.filter((r) => r.status === statusFilter);
+    if (payFilter === 'pendiente')
+      result = result.filter((r) => r.paymentStatus === 'unpaid' || r.paymentStatus === 'partial');
+    else if (payFilter === 'pagada') result = result.filter((r) => r.paymentStatus === 'paid');
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -48,7 +50,7 @@ export function CobrosView() {
       );
     }
     return result;
-  }, [rows, statusFilter, search]);
+  }, [rows, payFilter, search]);
 
   const detailRow = detailId ? rows.find((r) => r.id === detailId) : undefined;
 
@@ -76,19 +78,6 @@ export function CobrosView() {
         header: 'Origen',
         render: (r: BillingAccountRow) =>
           h(UI.Badge, { variant: 'secondary' } as any, SOURCE_LABEL[r.source] ?? r.source),
-      },
-      {
-        // Estado de la CUENTA (ciclo de vida de líneas): azul/gris, neutro a propósito —
-        // el verde/ámbar/rojo se reserva para la plata (columna Pago), para no confundir
-        // "cuenta cerrada" con "cobrada".
-        key: 'estado',
-        header: 'Estado',
-        render: (r: BillingAccountRow) =>
-          h(
-            UI.Badge,
-            { variant: r.status === 'closed' ? 'secondary' : 'info' } as any,
-            r.status === 'closed' ? 'Cerrada' : 'Abierta'
-          ),
       },
       {
         // Estado de PAGO (derivado de los cobros): lo accionable para el mostrador.
@@ -151,14 +140,14 @@ export function CobrosView() {
           onSearchChange: setSearch,
           filterSections: [
             {
-              label: 'Estado',
+              label: 'Pago',
               options: [
                 { value: 'todas', label: 'Todas' },
-                { value: 'open', label: 'Abiertas' },
-                { value: 'closed', label: 'Cerradas' },
+                { value: 'pendiente', label: 'Con saldo' },
+                { value: 'pagada', label: 'Saldadas' },
               ],
-              value: statusFilter,
-              onChange: (v: string) => setStatusFilter(v as StatusFilter),
+              value: payFilter,
+              onChange: (v: string) => setPayFilter(v as PayFilter),
             },
             {
               label: 'Rango',
