@@ -1,5 +1,7 @@
 import { getHostReact, actions } from '@coongro/plugin-sdk';
 
+import { loadContactNames, loadPetNames } from './contacts.js';
+
 const React = getHostReact();
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -68,13 +70,7 @@ export function useBillingAccounts(range?: {
         from,
         to,
       });
-      type NamedRow = { id: string; name: string };
-      const [contacts, pets] = await Promise.all([
-        actions.execute<NamedRow[]>('contacts.list').catch((): NamedRow[] => []),
-        actions.execute<NamedRow[]>('patients.pets.list').catch((): NamedRow[] => []),
-      ]);
-      const contactName = new Map((contacts ?? []).map((c) => [c.id, c.name]));
-      const petName = new Map((pets ?? []).map((p) => [p.id, p.name]));
+      const [contactName, petName] = await Promise.all([loadContactNames(), loadPetNames()]);
 
       const mapped: BillingAccountRow[] = (accounts ?? []).map((a) => ({
         id: a.id,

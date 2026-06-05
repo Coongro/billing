@@ -1,5 +1,7 @@
 import { getHostReact, actions } from '@coongro/plugin-sdk';
 
+import { loadContactNames } from './contacts.js';
+
 const React = getHostReact();
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -51,11 +53,7 @@ export function useCaja(range?: { from?: string; to?: string }): UseCajaResult {
         from,
         to,
       });
-      type NamedRow = { id: string; name: string };
-      const contacts = await actions
-        .execute<NamedRow[]>('contacts.list')
-        .catch((): NamedRow[] => []);
-      const contactName = new Map((contacts ?? []).map((c) => [c.id, c.name]));
+      const contactName = await loadContactNames();
       const mapped: CajaPayment[] = (payments ?? []).map((p) => ({
         id: p.id,
         amount: p.amount,

@@ -1,6 +1,7 @@
 import { getHostReact, getHostUI, actions } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
+import { PAYMENT_METHODS, METHOD_LABEL, LINE_SOURCE_LABEL } from '../constants.js';
 import { formatMoney, formatDate } from '../utils/money.js';
 
 const React = getHostReact();
@@ -42,24 +43,6 @@ interface AccountDetail {
   paymentStatus: string;
   payments: Payment[];
 }
-
-const SOURCE_LABEL: Record<string, string> = {
-  fee: 'Honorario',
-  service: 'Servicio',
-  vaccine: 'Vacuna',
-  product: 'Producto',
-};
-
-// Medios de cobro. Castellano rioplatense; el set es config de negocio, no enum de DB.
-const METHOD_OPTIONS = [
-  { value: 'efectivo', label: 'Efectivo' },
-  { value: 'transferencia', label: 'Transferencia' },
-  { value: 'debito', label: 'Débito' },
-  { value: 'credito', label: 'Crédito' },
-];
-const METHOD_LABEL: Record<string, string> = Object.fromEntries(
-  METHOD_OPTIONS.map((o) => [o.value, o.label])
-);
 
 interface AccountDetailDrawerProps {
   /** Cuenta a mostrar; null = cerrado. */
@@ -290,7 +273,7 @@ export function AccountDetailDrawer({
                             marginTop: '2px',
                           },
                         },
-                        `${SOURCE_LABEL[l.source_type] ?? l.source_type} · ${l.quantity} × ${formatMoney(l.unit_price)}`
+                        `${LINE_SOURCE_LABEL[l.source_type] ?? l.source_type} · ${l.quantity} × ${formatMoney(l.unit_price)}`
                       )
                     ),
                     h(
@@ -465,7 +448,7 @@ export function AccountDetailDrawer({
                 h('label', { style: fieldLabel }, 'Con qué'),
                 h(UI.SegmentedControl, {
                   value: payMethod,
-                  options: METHOD_OPTIONS,
+                  options: PAYMENT_METHODS,
                   onChange: (v: string) => setPayMethod(v),
                   size: 'sm',
                   'aria-label': 'Medio de pago',

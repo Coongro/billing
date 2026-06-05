@@ -1,6 +1,7 @@
 import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
+import { PAYMENT_METHODS, METHOD_LABEL, ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useCaja } from '../../data/useCaja.js';
 import type { CajaPayment } from '../../data/useCaja.js';
 import { formatMoney } from '../../utils/money.js';
@@ -12,17 +13,6 @@ const h = React.createElement;
 const DAY_MS = 86400000;
 
 type DaySel = 'hoy' | 'ayer';
-
-const METHODS = [
-  { value: 'efectivo', label: 'Efectivo' },
-  { value: 'transferencia', label: 'Transferencia' },
-  { value: 'debito', label: 'Débito' },
-  { value: 'credito', label: 'Crédito' },
-];
-const METHOD_LABEL: Record<string, string> = Object.fromEntries(
-  METHODS.map((m) => [m.value, m.label])
-);
-const SOURCE_LABEL: Record<string, string> = { consultation: 'Consulta', counter: 'Mostrador' };
 
 /** Clave de día (YYYY-MM-DD) en la zona horaria LOCAL del navegador. */
 function localDayKey(d: Date): string {
@@ -77,7 +67,7 @@ export function CajaView() {
         key: 'origen',
         header: 'Origen',
         render: (r: CajaPayment) =>
-          h(UI.Badge, { variant: 'secondary' } as any, SOURCE_LABEL[r.source] ?? r.source),
+          h(UI.Badge, { variant: 'secondary' } as any, ACCOUNT_SOURCE_LABEL[r.source] ?? r.source),
       },
       {
         key: 'medio',
@@ -159,7 +149,7 @@ export function CajaView() {
         h(
           'div',
           { className: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
-          ...METHODS.map((m) =>
+          ...PAYMENT_METHODS.map((m) =>
             h(
               'div',
               {

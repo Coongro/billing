@@ -2,6 +2,7 @@ import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
 import { AccountDetailDrawer } from '../../components/AccountDetailDrawer.js';
+import { ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useBillingAccounts } from '../../data/useBillingAccounts.js';
 import type { BillingAccountRow } from '../../data/useBillingAccounts.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
@@ -21,8 +22,6 @@ function daysAgoKey(days: number): string {
 function monthStartKey(): string {
   return new Date().toISOString().slice(0, 8) + '01';
 }
-
-const SOURCE_LABEL: Record<string, string> = { consultation: 'Consulta', counter: 'Mostrador' };
 
 export function CobrosView() {
   const [range, setRange] = useState<RangeFilter>('mes');
@@ -77,7 +76,7 @@ export function CobrosView() {
         key: 'origen',
         header: 'Origen',
         render: (r: BillingAccountRow) =>
-          h(UI.Badge, { variant: 'secondary' } as any, SOURCE_LABEL[r.source] ?? r.source),
+          h(UI.Badge, { variant: 'secondary' } as any, ACCOUNT_SOURCE_LABEL[r.source] ?? r.source),
       },
       {
         // Estado de PAGO (derivado de los cobros): lo accionable para el mostrador.

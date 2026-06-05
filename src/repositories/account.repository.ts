@@ -97,6 +97,39 @@ export class AccountRepository {
   }
 
   /**
+   * Mapas `account_id → total de líneas` y `account_id → cobrado (SUM pagos)`, calculados
+   * con `SUM ... GROUP BY` en la base (escalable). Base de todos los saldos derivados;
+   * compartido por listWithTotals y listDebtors para no duplicar las agregaciones.
+   */
+  private async accountTotals(): Promise<{
+    totalBy: Map<string, string>;
+    paidBy: Map<string, string>;
+  }> {
+    const lineTotals = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: accountLineTable.account_id,
+          total: sql<string>`coalesce(sum(${accountLineTable.subtotal}::numeric), 0)::text`,
+        })
+        .from(accountLineTable)
+        .groupBy(accountLineTable.account_id)
+    )) as Array<{ account_id: string; total: string }>;
+    const paidTotals = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: paymentTable.account_id,
+          paid: sql<string>`coalesce(sum(${paymentTable.amount}::numeric), 0)::text`,
+        })
+        .from(paymentTable)
+        .groupBy(paymentTable.account_id)
+    )) as Array<{ account_id: string; paid: string }>;
+    return {
+      totalBy: new Map(lineTotals.map((t) => [t.account_id, t.total])),
+      paidBy: new Map(paidTotals.map((p) => [p.account_id, p.paid])),
+    };
+  }
+
+  /**
    * Lista de cuentas con total derivado (para la vista Cobros y los ingresos).
    * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
    * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
@@ -113,32 +146,10 @@ export class AccountRepository {
       return conditions.length ? q.where(and(...conditions)) : q;
     })) as AccountRow[];
 
-    const totals = (await this.db.ormQuery((tx) =>
-      tx
-        .select({
-          account_id: accountLineTable.account_id,
-          total: sql<string>`coalesce(sum(${accountLineTable.subtotal}::numeric), 0)::text`,
-        })
-        .from(accountLineTable)
-        .groupBy(accountLineTable.account_id)
-    )) as Array<{ account_id: string; total: string }>;
-
-    // Cobrado por cuenta (SUM de pagos, mismo patrón GROUP BY que el total).
-    const paidRows = (await this.db.ormQuery((tx) =>
-      tx
-        .select({
-          account_id: paymentTable.account_id,
-          paid: sql<string>`coalesce(sum(${paymentTable.amount}::numeric), 0)::text`,
-        })
-        .from(paymentTable)
-        .groupBy(paymentTable.account_id)
-    )) as Array<{ account_id: string; paid: string }>;
-
-    const totalByAccount = new Map(totals.map((t) => [t.account_id, t.total]));
-    const paidByAccount = new Map(paidRows.map((p) => [p.account_id, p.paid]));
+    const { totalBy, paidBy } = await this.accountTotals();
     return accounts.map((a) => {
-      const total = totalByAccount.get(a.id) ?? '0';
-      const summary = derivePaymentSummary(total, paidByAccount.get(a.id) ?? '0');
+      const total = totalBy.get(a.id) ?? '0';
+      const summary = derivePaymentSummary(total, paidBy.get(a.id) ?? '0');
       return { ...a, opened_at: toIsoUtc(a.opened_at), total, ...summary };
     });
   }
@@ -190,27 +201,7 @@ export class AccountRepository {
     const accounts = (await this.db.ormQuery((tx) =>
       tx.select().from(accountTable)
     )) as AccountRow[];
-    const lineTotals = (await this.db.ormQuery((tx) =>
-      tx
-        .select({
-          account_id: accountLineTable.account_id,
-          total: sql<string>`coalesce(sum(${accountLineTable.subtotal}::numeric), 0)::text`,
-        })
-        .from(accountLineTable)
-        .groupBy(accountLineTable.account_id)
-    )) as Array<{ account_id: string; total: string }>;
-    const paidTotals = (await this.db.ormQuery((tx) =>
-      tx
-        .select({
-          account_id: paymentTable.account_id,
-          paid: sql<string>`coalesce(sum(${paymentTable.amount}::numeric), 0)::text`,
-        })
-        .from(paymentTable)
-        .groupBy(paymentTable.account_id)
-    )) as Array<{ account_id: string; paid: string }>;
-
-    const totalBy = new Map(lineTotals.map((t) => [t.account_id, t.total]));
-    const paidBy = new Map(paidTotals.map((p) => [p.account_id, p.paid]));
+    const { totalBy, paidBy } = await this.accountTotals();
 
     // Cuenta nula '—' como clave para los mostradores sin contacto, se mapea a null al salir.
     const byContact = new Map<string, { debt: number; count: number; oldest: string }>();

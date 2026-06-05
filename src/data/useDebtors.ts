@@ -1,5 +1,7 @@
 import { getHostReact, actions } from '@coongro/plugin-sdk';
 
+import { loadContactNames } from './contacts.js';
+
 const React = getHostReact();
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -44,11 +46,7 @@ export function useDebtors(): UseDebtorsResult {
     setError(null);
     try {
       const debtors = await actions.execute<RawDebtor[]>('billing.accounts.listDebtors');
-      type NamedRow = { id: string; name: string };
-      const contacts = await actions
-        .execute<NamedRow[]>('contacts.list')
-        .catch((): NamedRow[] => []);
-      const contactName = new Map((contacts ?? []).map((c) => [c.id, c.name]));
+      const contactName = await loadContactNames();
       const mapped: DebtorRow[] = (debtors ?? []).map((d) => ({
         contactId: d.contact_id,
         clientName: d.contact_id ? (contactName.get(d.contact_id) ?? '—') : '—',
