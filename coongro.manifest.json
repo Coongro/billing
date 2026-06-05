@@ -15,16 +15,42 @@
         "path": "Cobros",
         "order": 6,
         "icon": "assets/icons/receipt.svg",
-        "color": "#0EA5E9",
+        "color": "#0EA5E9"
+      },
+      {
+        "path": "Cobros/Cuentas",
+        "order": 1,
         "viewId": "billing.cobros.open"
+      },
+      {
+        "path": "Cobros/Deudores",
+        "order": 2,
+        "viewId": "billing.deudores.open"
+      },
+      {
+        "path": "Cobros/Caja diaria",
+        "order": 3,
+        "viewId": "billing.caja.open"
       }
     ],
     "views": [
       {
         "id": "billing.cobros.open",
-        "title": "Cobros",
+        "title": "Cuentas",
         "component": "./dist/views/cobros/index.js",
         "export": "CobrosView"
+      },
+      {
+        "id": "billing.deudores.open",
+        "title": "Deudores",
+        "component": "./dist/views/deudores/index.js",
+        "export": "DeudoresView"
+      },
+      {
+        "id": "billing.caja.open",
+        "title": "Caja diaria",
+        "component": "./dist/views/caja/index.js",
+        "export": "CajaView"
       }
     ],
     "repositories": [

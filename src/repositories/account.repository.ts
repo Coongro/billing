@@ -27,6 +27,17 @@ export interface AccountWithTotal extends AccountRow {
   paymentStatus: PaymentStatus;
 }
 
+/** Cliente con saldo pendiente agregado (para la vista Deudores). */
+export interface DebtorRow {
+  contact_id: string | null;
+  /** Suma de saldos pendientes de todas sus cuentas. */
+  debt: string;
+  /** Cantidad de cuentas con saldo. */
+  account_count: number;
+  /** Fecha (ISO-UTC) de la cuenta con saldo más vieja — antigüedad del fiado. */
+  oldest_opened_at: string;
+}
+
 export class AccountRepository {
   constructor(private readonly db: ModuleDatabaseAPI) {}
 
@@ -168,6 +179,63 @@ export class AccountRepository {
         .map((p) => ({ ...p, paid_at: toIsoUtc(p.paid_at) }))
         .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1)),
     };
+  }
+
+  /**
+   * Clientes con saldo pendiente, agregados por contacto (vista Deudores = "¿quién me
+   * debe?"). El saldo de cada cuenta = total de líneas − total de pagos (derivado, igual
+   * que en listWithTotals). Solo incluye cuentas con saldo > 0. Ordenado por deuda desc.
+   */
+  async listDebtors(): Promise<DebtorRow[]> {
+    const accounts = (await this.db.ormQuery((tx) =>
+      tx.select().from(accountTable)
+    )) as AccountRow[];
+    const lineTotals = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: accountLineTable.account_id,
+          total: sql<string>`coalesce(sum(${accountLineTable.subtotal}::numeric), 0)::text`,
+        })
+        .from(accountLineTable)
+        .groupBy(accountLineTable.account_id)
+    )) as Array<{ account_id: string; total: string }>;
+    const paidTotals = (await this.db.ormQuery((tx) =>
+      tx
+        .select({
+          account_id: paymentTable.account_id,
+          paid: sql<string>`coalesce(sum(${paymentTable.amount}::numeric), 0)::text`,
+        })
+        .from(paymentTable)
+        .groupBy(paymentTable.account_id)
+    )) as Array<{ account_id: string; paid: string }>;
+
+    const totalBy = new Map(lineTotals.map((t) => [t.account_id, t.total]));
+    const paidBy = new Map(paidTotals.map((p) => [p.account_id, p.paid]));
+
+    // Cuenta nula '—' como clave para los mostradores sin contacto, se mapea a null al salir.
+    const byContact = new Map<string, { debt: number; count: number; oldest: string }>();
+    for (const a of accounts) {
+      const balance = Number(totalBy.get(a.id) ?? 0) - Number(paidBy.get(a.id) ?? 0);
+      if (balance <= 0.005) continue;
+      const key = a.contact_id ?? '—';
+      const opened = toIsoUtc(a.opened_at);
+      const cur = byContact.get(key);
+      if (cur) {
+        cur.debt += balance;
+        cur.count += 1;
+        if (opened < cur.oldest) cur.oldest = opened;
+      } else {
+        byContact.set(key, { debt: balance, count: 1, oldest: opened });
+      }
+    }
+    return Array.from(byContact.entries())
+      .map(([contact_id, v]) => ({
+        contact_id: contact_id === '—' ? null : contact_id,
+        debt: String(v.debt),
+        account_count: v.count,
+        oldest_opened_at: v.oldest,
+      }))
+      .sort((a, b) => Number(b.debt) - Number(a.debt));
   }
 
   /** Cierra la cuenta (status='closed'). */

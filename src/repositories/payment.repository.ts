@@ -1,11 +1,23 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte, lte } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 
+import { accountTable } from '../schema/account.js';
 import { paymentTable } from '../schema/payment.js';
 import type { PaymentRow, NewPaymentRow } from '../schema/payment.js';
 import { toIsoUtc } from '../utils/datetime.js';
+
+/** Pago con el cliente y el origen de su cuenta (para la Caja diaria). */
+export interface PaymentInRange {
+  id: string;
+  amount: string;
+  method: string;
+  paid_at: string;
+  contact_id: string | null;
+  account_source: string;
+}
 
 export class PaymentRepository {
   constructor(private readonly db: ModuleDatabaseAPI) {}
@@ -52,6 +64,31 @@ export class PaymentRepository {
     return rows
       .map((p) => ({ ...p, paid_at: toIsoUtc(p.paid_at) }))
       .sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1));
+  }
+
+  /**
+   * Pagos en un rango de fechas (por `paid_at`), con el cliente y el origen de la cuenta
+   * (join). Para la Caja diaria: cuánto entró y por qué medio. Sin rango = todos.
+   */
+  async listInRange({ from, to }: { from?: string; to?: string } = {}): Promise<PaymentInRange[]> {
+    const conditions: SQL[] = [];
+    if (from) conditions.push(gte(paymentTable.paid_at, from));
+    if (to) conditions.push(lte(paymentTable.paid_at, to));
+    const rows = (await this.db.ormQuery((tx) => {
+      const q = tx
+        .select({
+          id: paymentTable.id,
+          amount: paymentTable.amount,
+          method: paymentTable.method,
+          paid_at: paymentTable.paid_at,
+          contact_id: accountTable.contact_id,
+          account_source: accountTable.source,
+        })
+        .from(paymentTable)
+        .innerJoin(accountTable, eq(paymentTable.account_id, accountTable.id));
+      return conditions.length ? q.where(and(...conditions)) : q;
+    })) as PaymentInRange[];
+    return rows.map((r) => ({ ...r, paid_at: toIsoUtc(r.paid_at) }));
   }
 
   async getById({ id }: { id: string }): Promise<PaymentRow | undefined> {
