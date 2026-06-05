@@ -23,18 +23,13 @@
         "viewId": "billing.cobros.open"
       },
       {
-        "path": "Cobros/Presupuestos",
-        "order": 2,
-        "viewId": "billing.presupuestos.open"
-      },
-      {
         "path": "Cobros/Deudores",
-        "order": 3,
+        "order": 2,
         "viewId": "billing.deudores.open"
       },
       {
         "path": "Cobros/Caja diaria",
-        "order": 4,
+        "order": 3,
         "viewId": "billing.caja.open"
       }
     ],
@@ -44,12 +39,6 @@
         "title": "Cuentas",
         "component": "./dist/views/cobros/index.js",
         "export": "CobrosView"
-      },
-      {
-        "id": "billing.presupuestos.open",
-        "title": "Presupuestos",
-        "component": "./dist/views/presupuestos/index.js",
-        "export": "PresupuestosView"
       },
       {
         "id": "billing.deudores.open",

@@ -49,13 +49,10 @@ export interface UseBillingAccountsResult {
  * no están, igual muestra la cuenta con "—" (billing es kit-agnóstico). `range`
  * filtra por fecha en la base (escalable). Pasar un `range` memoizado para evitar recargas.
  */
-export function useBillingAccounts(
-  range?: {
-    from?: string;
-    to?: string;
-  },
-  draft = false
-): UseBillingAccountsResult {
+export function useBillingAccounts(range?: {
+  from?: string;
+  to?: string;
+}): UseBillingAccountsResult {
   const [rows, setRows] = useState<BillingAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +69,6 @@ export function useBillingAccounts(
       const accounts = await actions.execute<RawAccount[]>('billing.accounts.listWithTotals', {
         from,
         to,
-        draft,
       });
       const [contactName, petName] = await Promise.all([loadContactNames(), loadPetNames()]);
 
@@ -99,7 +95,7 @@ export function useBillingAccounts(
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [from, to, draft]);
+  }, [from, to]);
 
   useEffect(() => {
     void reload();
