@@ -2,6 +2,7 @@ import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
 import { AccountDetailDrawer } from '../../components/AccountDetailDrawer.js';
+import { CounterSaleDialog } from '../../components/CounterSaleDialog.js';
 import { ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useBillingAccounts } from '../../data/useBillingAccounts.js';
 import type { BillingAccountRow } from '../../data/useBillingAccounts.js';
@@ -28,6 +29,7 @@ export function CobrosView() {
   const [payFilter, setPayFilter] = useState<PayFilter>('todas');
   const [search, setSearch] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [showSale, setShowSale] = useState(false);
 
   // Rango server-side (escalable): el filtro de fecha se aplica en la base.
   const apiRange = useMemo(() => {
@@ -114,12 +116,22 @@ export function CobrosView() {
 
       h(
         'div',
-        null,
-        h('h1', { className: 'text-2xl font-bold text-cg-text' }, 'Cobros'),
+        { className: 'flex items-end justify-between gap-4 flex-wrap' },
         h(
-          'p',
-          { className: 'text-sm text-cg-text-muted mt-1' },
-          'Cuentas de atención — lo cobrado por consulta y por venta de mostrador.'
+          'div',
+          null,
+          h('h1', { className: 'text-2xl font-bold text-cg-text' }, 'Cobros'),
+          h(
+            'p',
+            { className: 'text-sm text-cg-text-muted mt-1' },
+            'Cuentas de atención — lo cobrado por consulta y por venta de mostrador.'
+          )
+        ),
+        h(
+          UI.Button,
+          { variant: 'brand', size: 'sm', onClick: () => setShowSale(true) } as any,
+          h(UI.DynamicIcon, { icon: 'ShoppingCart', size: 14 } as any),
+          ' Venta de mostrador'
         )
       ),
 
@@ -179,6 +191,13 @@ export function CobrosView() {
         : undefined,
       onClose: () => setDetailId(null),
       onChanged: () => void reload(),
+    }),
+
+    // Venta de mostrador (venta rápida sin consulta)
+    h(CounterSaleDialog, {
+      open: showSale,
+      onOpenChange: (v: boolean) => setShowSale(v),
+      onSaved: () => void reload(),
     })
   );
 }

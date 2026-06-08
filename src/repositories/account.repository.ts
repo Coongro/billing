@@ -147,11 +147,18 @@ export class AccountRepository {
     })) as AccountRow[];
 
     const { totalBy, paidBy } = await this.accountTotals();
-    return accounts.map((a) => {
-      const total = totalBy.get(a.id) ?? '0';
-      const summary = derivePaymentSummary(total, paidBy.get(a.id) ?? '0');
-      return { ...a, opened_at: toIsoUtc(a.opened_at), total, ...summary };
-    });
+    return (
+      accounts
+        .map((a) => {
+          const total = totalBy.get(a.id) ?? '0';
+          const summary = derivePaymentSummary(total, paidBy.get(a.id) ?? '0');
+          return { ...a, opened_at: toIsoUtc(a.opened_at), total, ...summary };
+        })
+        // Cuentas sin líneas NI pagos = mostradores abiertos y abandonados (ej. openForVisit
+        // que nunca recibió una línea). Son ruido en Cobros, no un cobro real → se ocultan.
+        // (Las consultas solo abren cuenta cuando hay servicios, así que no caen acá.)
+        .filter((a) => Number(a.total) > 0.005 || Number(a.paid) > 0.005)
+    );
   }
 
   /** Cuenta + líneas + total + estado de cobro + pagos (para el detalle / drawer). */

@@ -10,3 +10,7 @@ export * from './schema/account-line.js';
 export { AccountLineRepository } from './repositories/account-line.repository.js';
 export * from './schema/payment.js';
 export { PaymentRepository } from './repositories/payment.repository.js';
+export * from './schema/expense.js';
+export { ExpenseRepository } from './repositories/expense.repository.js';
+export * from './schema/cash-close.js';
+export { CashCloseRepository } from './repositories/cash-close.repository.js';
