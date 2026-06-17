@@ -1,0 +1,21 @@
+
+> @coongro/billing@0.1.0 build A:\Coongro2\Coongro\plugins\billing
+> npm run build:css && npm run copy:fontawesome && tsc
+
+npm warn config ignoring workspace config at A:\Coongro2\Coongro\plugins\billing/.npmrc
+
+> @coongro/billing@0.1.0 build:css
+> tailwindcss -c tailwind.config.cjs -i ./src/styles/tailwind.css -o ./dist/assets/tailwind.css --minify
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 1820ms.
+npm warn config ignoring workspace config at A:\Coongro2\Coongro\plugins\billing/.npmrc
+
+> @coongro/billing@0.1.0 copy:fontawesome
+> node scripts/copy-fontawesome.cjs
+
