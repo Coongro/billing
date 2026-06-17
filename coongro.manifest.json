@@ -14,7 +14,7 @@
       {
         "path": "Cobros",
         "order": 6,
-        "icon": "assets/icons/receipt.svg",
+        "icon": "assets/icons/wallet.svg",
         "color": "#0EA5E9"
       },
       {
@@ -28,8 +28,10 @@
         "viewId": "billing.deudores.open"
       },
       {
-        "path": "Cobros/Caja diaria",
-        "order": 3,
+        "path": "Caja diaria",
+        "order": 20,
+        "icon": "assets/icons/coins.svg",
+        "color": "#16A34A",
         "viewId": "billing.caja.open"
       }
     ],
@@ -68,7 +70,48 @@
         "module": "./dist/repositories/payment.repository.js",
         "export": "PaymentRepository",
         "prefix": "billing.payments"
+      },
+      {
+        "module": "./dist/repositories/expense.repository.js",
+        "export": "ExpenseRepository",
+        "prefix": "billing.expenses"
+      },
+      {
+        "module": "./dist/repositories/cash-close.repository.js",
+        "export": "CashCloseRepository",
+        "prefix": "billing.cashCloses"
       }
-    ]
+    ],
+    "settings": {
+      "groups": [{ "id": "billing", "label": "Cobros y caja", "order": 50 }],
+      "pages": [
+        {
+          "id": "billing.general",
+          "group": "billing",
+          "label": "Caja",
+          "icon": "assets/icons/wallet.svg",
+          "order": 10
+        }
+      ],
+      "sections": [
+        {
+          "id": "billing.general.cash",
+          "page": "billing.general",
+          "label": "Caja diaria",
+          "order": 10,
+          "items": [
+            {
+              "key": "billing.cash.openingFloat",
+              "type": "number",
+              "label": "Fondo inicial de caja",
+              "description": "Efectivo con el que arranca el cajón cada día, para el arqueo. Se pre-rellena al cerrar la caja; podés ajustarlo ahí.",
+              "default": 0,
+              "min": 0,
+              "tags": ["billing", "caja", "fondo", "inicial", "arqueo"]
+            }
+          ]
+        }
+      ]
+    }
   }
 }

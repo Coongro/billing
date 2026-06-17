@@ -15,6 +15,13 @@
       "when": 1780611532264,
       "tag": "0001_add_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780702318594,
+      "tag": "0002_icy_vanisher",
+      "breakpoints": true
     }
   ]
 }
