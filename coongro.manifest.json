@@ -28,8 +28,10 @@
         "viewId": "billing.deudores.open"
       },
       {
-        "path": "Cobros/Caja diaria",
-        "order": 3,
+        "path": "Caja diaria",
+        "order": 20,
+        "icon": "assets/icons/coins.svg",
+        "color": "#16A34A",
         "viewId": "billing.caja.open"
       }
     ],
