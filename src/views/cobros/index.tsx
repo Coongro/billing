@@ -9,7 +9,7 @@ import type { BillingAccountRow } from '../../data/useBillingAccounts.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
 
 const React = getHostReact();
-const { useState, useMemo } = React;
+const { useState, useMemo, useEffect } = React;
 const h = React.createElement;
 
 type RangeFilter = 'mes' | '30d' | 'todas';
@@ -24,12 +24,18 @@ function monthStartKey(): string {
   return new Date().toISOString().slice(0, 8) + '01';
 }
 
-export function CobrosView() {
+export function CobrosView(props: { openAccountId?: string } = {}) {
   const [range, setRange] = useState<RangeFilter>('mes');
   const [payFilter, setPayFilter] = useState<PayFilter>('todas');
   const [search, setSearch] = useState('');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // Deep-link: si llegamos con `openAccountId` (ej. botón "Cobrar" de una consulta),
+  // abrimos directo el checkout de esa cuenta.
+  const [detailId, setDetailId] = useState<string | null>(props.openAccountId ?? null);
   const [showSale, setShowSale] = useState(false);
+
+  useEffect(() => {
+    if (props.openAccountId) setDetailId(props.openAccountId);
+  }, [props.openAccountId]);
 
   // Rango server-side (escalable): el filtro de fecha se aplica en la base.
   const apiRange = useMemo(() => {
@@ -124,14 +130,14 @@ export function CobrosView() {
           h(
             'p',
             { className: 'text-sm text-cg-text-muted mt-1' },
-            'Cuentas de atención — lo cobrado por consulta y por venta de mostrador.'
+            'Cuentas de la visita — consultas, vacunas y productos, todo en un solo cobro.'
           )
         ),
         h(
           UI.Button,
           { variant: 'brand', size: 'sm', onClick: () => setShowSale(true) } as any,
-          h(UI.DynamicIcon, { icon: 'ShoppingCart', size: 14 } as any),
-          ' Venta de mostrador'
+          h(UI.DynamicIcon, { icon: 'Plus', size: 14 } as any),
+          ' Cobro rápido'
         )
       ),
 
