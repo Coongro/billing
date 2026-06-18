@@ -56,6 +56,7 @@ export class AccountRepository {
     consultationId = null,
     source = 'counter',
     openedAt = null,
+    direction = 'receivable',
   }: {
     contactId?: string | null;
     petId?: string | null;
@@ -63,6 +64,8 @@ export class AccountRepository {
     source?: string;
     /** Fecha de negocio del cobro (ej. la fecha de la consulta). Default: ahora (now()). */
     openedAt?: string | null;
+    /** 'receivable' (por cobrar, Cobros) | 'payable' (por pagar, Salidas). */
+    direction?: string;
   }): Promise<AccountRow> {
     if (consultationId) {
       // Dedup por consultation_id SIN filtrar por estado: una consulta tiene UNA sola
@@ -87,6 +90,7 @@ export class AccountRepository {
       consultation_id: consultationId,
       source: consultationId ? 'consultation' : source,
       status: 'open',
+      direction,
       // opened_at SIEMPRE en ISO/UTC: los reportes por fecha (toDateKey/luxon) necesitan
       // un formato parseable consistente. El default now() de Postgres es local-sin-TZ y
       // no parsea como ISO. `openedAt` = fecha de negocio (ej. fecha de la consulta).
@@ -134,10 +138,12 @@ export class AccountRepository {
    * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
    * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
    */
-  async listWithTotals({ from, to }: { from?: string; to?: string } = {}): Promise<
-    AccountWithTotal[]
-  > {
-    const conditions: SQL[] = [];
+  async listWithTotals({
+    from,
+    to,
+    direction = 'receivable',
+  }: { from?: string; to?: string; direction?: string } = {}): Promise<AccountWithTotal[]> {
+    const conditions: SQL[] = [eq(accountTable.direction, direction)];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
 
@@ -204,9 +210,11 @@ export class AccountRepository {
    * debe?"). El saldo de cada cuenta = total de líneas − total de pagos (derivado, igual
    * que en listWithTotals). Solo incluye cuentas con saldo > 0. Ordenado por deuda desc.
    */
-  async listDebtors(): Promise<DebtorRow[]> {
+  async listDebtors({ direction = 'receivable' }: { direction?: string } = {}): Promise<
+    DebtorRow[]
+  > {
     const accounts = (await this.db.ormQuery((tx) =>
-      tx.select().from(accountTable)
+      tx.select().from(accountTable).where(eq(accountTable.direction, direction))
     )) as AccountRow[];
     const { totalBy, paidBy } = await this.accountTotals();
 

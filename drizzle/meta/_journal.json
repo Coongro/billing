@@ -22,6 +22,13 @@
       "when": 1780702318594,
       "tag": "0002_icy_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781826217368,
+      "tag": "0003_typical_silhouette",
+      "breakpoints": true
     }
   ]
 }

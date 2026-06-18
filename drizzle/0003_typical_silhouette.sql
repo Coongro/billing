@@ -1,0 +1,1 @@
+ALTER TABLE "module_billing_accounts" ADD COLUMN "direction" text DEFAULT 'receivable' NOT NULL;
