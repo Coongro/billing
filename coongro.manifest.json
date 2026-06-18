@@ -15,17 +15,8 @@
         "path": "Cobros",
         "order": 6,
         "icon": "assets/icons/wallet.svg",
-        "color": "#0EA5E9"
-      },
-      {
-        "path": "Cobros/Cuentas",
-        "order": 1,
+        "color": "#0EA5E9",
         "viewId": "billing.cobros.open"
-      },
-      {
-        "path": "Cobros/Deudores",
-        "order": 2,
-        "viewId": "billing.deudores.open"
       },
       {
         "path": "Caja",

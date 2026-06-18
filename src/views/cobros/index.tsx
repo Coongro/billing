@@ -1,8 +1,9 @@
-import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
+import { getHostReact, getHostUI, views } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
 import { AccountDetailDrawer } from '../../components/AccountDetailDrawer.js';
 import { CounterSaleDialog } from '../../components/CounterSaleDialog.js';
+import { CuentasSummaryCards } from '../../components/CuentasSummaryCards.js';
 import { ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useBillingAccounts } from '../../data/useBillingAccounts.js';
 import type { BillingAccountRow } from '../../data/useBillingAccounts.js';
@@ -58,6 +59,34 @@ export function CobrosView(props: { openAccountId?: string } = {}) {
     }
     return result;
   }, [rows, payFilter, search]);
+
+  // Métricas del rango cargado (todas las cuentas, sin aplicar búsqueda/filtro):
+  // alimentan las tarjetas-resumen. Deudores = clientes únicos con saldo > 0.
+  const metrics = useMemo(() => {
+    let porCobrar = 0;
+    let cobrado = 0;
+    let nConSaldo = 0;
+    let nSaldadas = 0;
+    const debtorIds = new Set<string>();
+    rows.forEach((r) => {
+      const balance = Number(r.balance) || 0;
+      cobrado += Number(r.paid) || 0;
+      if (balance > 0) {
+        porCobrar += balance;
+        nConSaldo += 1;
+        debtorIds.add(r.contactId ?? r.clientName);
+      }
+      if (r.paymentStatus === 'paid') nSaldadas += 1;
+    });
+    return {
+      porCobrar,
+      cobrado,
+      nConSaldo,
+      nSaldadas,
+      nCuentas: rows.length,
+      nDeudores: debtorIds.size,
+    };
+  }, [rows]);
 
   const detailRow = detailId ? rows.find((r) => r.id === detailId) : undefined;
 
@@ -140,6 +169,15 @@ export function CobrosView(props: { openAccountId?: string } = {}) {
           ' Cobro rápido'
         )
       ),
+
+      // Tarjetas-resumen (diseño Cobros/Cuentas): atajos de filtro + acceso a Deudores.
+      h(CuentasSummaryCards, {
+        metrics,
+        loading,
+        payFilter,
+        onFilter: (f: PayFilter) => setPayFilter(f),
+        onOpenDeudores: () => void views.open('billing.deudores.open'),
+      }),
 
       h(
         'div',
