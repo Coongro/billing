@@ -1,7 +1,7 @@
 import { getHostReact, getHostUI, actions } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
-import { PAYMENT_METHODS, METHOD_LABEL, LINE_SOURCE_LABEL } from '../constants.js';
+import { PAYMENT_METHODS, METHOD_LABEL } from '../constants.js';
 import { formatMoney, formatDate } from '../utils/money.js';
 import { toast } from '../utils/toast.js';
 
@@ -181,6 +181,95 @@ export function AccountDetailDrawer({
       )
     );
 
+  // Fila de una línea de cobro (el origen ya lo indica el encabezado de su sección).
+  const lineRow = (l: AccountLine) =>
+    h(
+      'div',
+      {
+        key: l.id,
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          padding: '10px 12px',
+          border: '1px solid var(--cg-border)',
+          borderRadius: '8px',
+        },
+      },
+      h(
+        'div',
+        { style: { minWidth: 0 } },
+        h('div', { style: { fontSize: '13px', fontWeight: 500 } }, l.description),
+        h(
+          'div',
+          { style: { fontSize: '11.5px', color: 'var(--cg-text-muted)', marginTop: '2px' } },
+          `${l.quantity} × ${formatMoney(l.unit_price)}`
+        )
+      ),
+      h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        h(
+          'span',
+          { style: { ...mono, fontWeight: 600, fontSize: '13px' } },
+          formatMoney(l.subtotal)
+        ),
+        h(
+          UI.IconButton,
+          {
+            variant: 'ghost',
+            size: 'sm',
+            disabled: busy,
+            'aria-label': `Quitar ${l.description}`,
+            onClick: () => void removeLine(l.id),
+          } as any,
+          h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
+        )
+      )
+    );
+
+  // Agrupa las líneas por origen (Servicios / Vacunas / Productos) para el checkout.
+  const groupedLines = (lines: AccountLine[]) => {
+    const GROUPS: { label: string; types: string[] }[] = [
+      { label: 'Servicios', types: ['fee', 'service'] },
+      { label: 'Vacunas', types: ['vaccine'] },
+      { label: 'Productos', types: ['product'] },
+    ];
+    const seen = new Set<string>();
+    const sections: { label: string; items: AccountLine[] }[] = [];
+    for (const g of GROUPS) {
+      const items = lines.filter((l) => g.types.includes(l.source_type));
+      items.forEach((l) => seen.add(l.id));
+      if (items.length) sections.push({ label: g.label, items });
+    }
+    const rest = lines.filter((l) => !seen.has(l.id));
+    if (rest.length) sections.push({ label: 'Otros', items: rest });
+    return sections.map((s) =>
+      h(
+        'div',
+        {
+          key: s.label,
+          style: { display: 'flex', flexDirection: 'column', gap: '8px' },
+        },
+        h(
+          'div',
+          {
+            style: {
+              fontSize: '11px',
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: 'var(--cg-text-muted)',
+            },
+          },
+          s.label
+        ),
+        ...s.items.map((l) => lineRow(l))
+      )
+    );
+  };
+
   return h(
     UI.Sheet,
     {
@@ -214,7 +303,15 @@ export function AccountDetailDrawer({
             },
             'COBRO'
           ),
-          h(UI.SheetTitle, null, 'Detalle de la cuenta'),
+          h(
+            UI.SheetTitle,
+            null,
+            h(
+              'span',
+              { className: 'font-serif font-black tracking-tight', style: { fontSize: '21px' } },
+              'Cobro de la visita'
+            )
+          ),
           subtitle &&
             h(
               'p',
@@ -260,60 +357,8 @@ export function AccountDetailDrawer({
                 )
               : h(
                   'div',
-                  { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-                  ...detail.lines.map((l) =>
-                    h(
-                      'div',
-                      {
-                        key: l.id,
-                        style: {
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '12px',
-                          padding: '10px 12px',
-                          border: '1px solid var(--cg-border)',
-                          borderRadius: '8px',
-                        },
-                      },
-                      h(
-                        'div',
-                        { style: { minWidth: 0 } },
-                        h('div', { style: { fontSize: '13px', fontWeight: 500 } }, l.description),
-                        h(
-                          'div',
-                          {
-                            style: {
-                              fontSize: '11.5px',
-                              color: 'var(--cg-text-muted)',
-                              marginTop: '2px',
-                            },
-                          },
-                          `${LINE_SOURCE_LABEL[l.source_type] ?? l.source_type} · ${l.quantity} × ${formatMoney(l.unit_price)}`
-                        )
-                      ),
-                      h(
-                        'div',
-                        { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                        h(
-                          'span',
-                          { style: { ...mono, fontWeight: 600, fontSize: '13px' } },
-                          formatMoney(l.subtotal)
-                        ),
-                        h(
-                          UI.IconButton,
-                          {
-                            variant: 'ghost',
-                            size: 'sm',
-                            disabled: busy,
-                            'aria-label': `Quitar ${l.description}`,
-                            onClick: () => void removeLine(l.id),
-                          } as any,
-                          h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
-                        )
-                      )
-                    )
-                  )
+                  { style: { display: 'flex', flexDirection: 'column', gap: '18px' } },
+                  ...groupedLines(detail.lines)
                 )
       ),
 

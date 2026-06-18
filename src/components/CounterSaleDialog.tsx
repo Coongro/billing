@@ -106,7 +106,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     {
       open,
       onOpenChange,
-      title: 'Venta de mostrador',
+      title: 'Cobro rápido',
       size: 'lg',
       footer: h(
         'div',
@@ -144,7 +144,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
       h(
         'p',
         { className: 'text-xs text-cg-text-muted' },
-        'Venta rápida sin consulta. Se cobra en el acto y entra a la caja del día.'
+        'Cobro sin consulta: sumá productos o servicios sueltos. Se cobra en el acto y entra a la caja del día.'
       ),
 
       // Ítems
