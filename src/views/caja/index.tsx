@@ -2,7 +2,7 @@
  * Caja diaria (COONG-211) — arqueo del día: cobrado − egresos = neto.
  * Rediseño 2026-06 según diseño aprobado: header + selector de fecha, tiles de
  * resumen, cobrado por disponibilidad, tabla de cobros, egresos y cierre.
- * Reutiliza los hooks de datos reales (useCaja/useExpenses/useCashClose) +
+ * Reutiliza los hooks de datos reales (useCaja/useCashClose) +
  * tokens cg-* (dark mode). Layout en utilidades estándar/inline (sin depender
  * de clases arbitrarias del CSS del plugin).
  */
@@ -13,13 +13,11 @@ import { PAYMENT_METHOD_GROUPS, METHOD_LABEL, ACCOUNT_SOURCE_LABEL } from '../..
 import { useCaja } from '../../data/useCaja.js';
 import type { CajaPayment } from '../../data/useCaja.js';
 import { useCashClose } from '../../data/useCashClose.js';
-import { useExpenses } from '../../data/useExpenses.js';
 import { localDayKey, addDays, hhmm } from '../../utils/day.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
 import { useMinWidth, gridCols } from '../../utils/responsive.js';
 
 import { CashCloseSection } from './CashCloseSection.js';
-import { ExpensesSection } from './ExpensesSection.js';
 
 const React = getHostReact();
 const { useState, useMemo } = React;
@@ -172,16 +170,22 @@ export function CajaView() {
   );
 
   const { rows: payRows, loading, error, reload } = useCaja(apiRange);
-  const { rows: expRows, reload: reloadExpenses } = useExpenses(apiRange);
   const { close, reload: reloadClose } = useCashClose(selectedDay);
 
-  const dayPayments = useMemo(
+  // Pagos del día, separados por dirección de la cuenta: cobros (receivable) vs egresos
+  // (payable). Los egresos ahora se cargan en Salidas/Movimientos; Caja solo los REFLEJA.
+  const dayPaymentsRaw = useMemo(
     () => payRows.filter((r) => localDayKey(new Date(r.paidAt)) === selectedDay),
     [payRows, selectedDay]
   );
-  const dayExpenses = useMemo(
-    () => expRows.filter((e) => localDayKey(new Date(e.spentAt)) === selectedDay),
-    [expRows, selectedDay]
+  const dayPayments = useMemo(
+    () => dayPaymentsRaw.filter((r) => r.direction !== 'payable'),
+    [dayPaymentsRaw]
+  );
+  // Egresos que tocan el cajón = salidas (payable) pagadas en EFECTIVO en el día.
+  const daySalidasEfectivo = useMemo(
+    () => dayPaymentsRaw.filter((r) => r.direction === 'payable' && r.method === 'efectivo'),
+    [dayPaymentsRaw]
   );
 
   const total = useMemo(
@@ -194,8 +198,8 @@ export function CajaView() {
     return m;
   }, [dayPayments]);
   const expensesTotal = useMemo(
-    () => dayExpenses.reduce((s, e) => s + Number(e.amount || 0), 0),
-    [dayExpenses]
+    () => daySalidasEfectivo.reduce((s, r) => s + Number(r.amount || 0), 0),
+    [daySalidasEfectivo]
   );
   const neto = total - expensesTotal;
   const digitalCobrado = total - (byMethod['efectivo'] ?? 0);
@@ -278,7 +282,7 @@ export function CajaView() {
       iconCls: 'bg-cg-bg-hover text-cg-text-secondary border border-cg-border',
       label: 'Egresos',
       value: expensesTotal > 0 ? `− ${formatMoney(expensesTotal)}` : formatMoney(0),
-      sub: `${dayExpenses.length} ${dayExpenses.length === 1 ? 'egreso' : 'egresos'}`,
+      sub: `${daySalidasEfectivo.length} en efectivo · desde Movimientos`,
     }),
     tile({
       icon: 'Wallet',
@@ -548,14 +552,6 @@ export function CajaView() {
         }),
         cobrosTable
       ),
-
-      // Egresos del día (alta + lista) — sección existente
-      h(ExpensesSection, {
-        day: selectedDay,
-        rows: dayExpenses,
-        neto,
-        reload: reloadExpenses,
-      }),
 
       // Cierre de caja (arqueo) — sección existente
       h(CashCloseSection, {
