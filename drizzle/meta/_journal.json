@@ -29,6 +29,13 @@
       "when": 1781826217368,
       "tag": "0003_typical_silhouette",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781914024194,
+      "tag": "0004_open_the_fury",
+      "breakpoints": true
     }
   ]
 }

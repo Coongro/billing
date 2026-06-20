@@ -1,0 +1,1 @@
+DROP TABLE "module_billing_expenses" CASCADE;
