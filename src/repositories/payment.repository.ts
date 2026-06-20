@@ -17,6 +17,8 @@ export interface PaymentInRange {
   paid_at: string;
   contact_id: string | null;
   account_source: string;
+  /** 'receivable' (cobro) | 'payable' (egreso/salida) — para separar en Caja. */
+  account_direction: string;
 }
 
 export class PaymentRepository {
@@ -83,6 +85,7 @@ export class PaymentRepository {
           paid_at: paymentTable.paid_at,
           contact_id: accountTable.contact_id,
           account_source: accountTable.source,
+          account_direction: accountTable.direction,
         })
         .from(paymentTable)
         .innerJoin(accountTable, eq(paymentTable.account_id, accountTable.id));

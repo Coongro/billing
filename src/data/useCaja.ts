@@ -13,6 +13,8 @@ export interface CajaPayment {
   paidAt: string;
   clientName: string;
   source: string;
+  /** 'receivable' (cobro) | 'payable' (egreso/salida). */
+  direction: string;
 }
 
 interface RawPayment {
@@ -22,6 +24,7 @@ interface RawPayment {
   paid_at: string;
   contact_id: string | null;
   account_source: string;
+  account_direction: string;
 }
 
 export interface UseCajaResult {
@@ -60,6 +63,7 @@ export function useCaja(range?: { from?: string; to?: string }): UseCajaResult {
         method: p.method,
         paidAt: p.paid_at,
         source: p.account_source,
+        direction: p.account_direction,
         clientName: p.contact_id ? (contactName.get(p.contact_id) ?? '—') : '—',
       }));
       setRows(mapped);
