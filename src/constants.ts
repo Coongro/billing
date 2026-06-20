@@ -48,19 +48,3 @@ export const LINE_SOURCE_LABEL: Record<string, string> = {
   vaccine: 'Vacuna',
   product: 'Producto',
 };
-
-/**
- * Categorías de egreso de caja (salidas de efectivo). El set surge de la investigación:
- * retiro del dueño e insumos/petty cash son los egresos que un negocio chico realmente
- * separa. Text libre en DB (igual que los medios), así que sumar/quitar una no migra.
- */
-export const EXPENSE_CATEGORIES = [
-  { value: 'retiro', label: 'Retiro' },
-  { value: 'proveedor', label: 'Proveedor' },
-  { value: 'insumos', label: 'Insumos' },
-  { value: 'otro', label: 'Otro' },
-];
-
-export const EXPENSE_CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
-  EXPENSE_CATEGORIES.map((c) => [c.value, c.label])
-);

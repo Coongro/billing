@@ -197,11 +197,11 @@ export function CajaView() {
     for (const r of dayPayments) m[r.method] = (m[r.method] ?? 0) + Number(r.amount || 0);
     return m;
   }, [dayPayments]);
-  const expensesTotal = useMemo(
+  const egresosEfectivo = useMemo(
     () => daySalidasEfectivo.reduce((s, r) => s + Number(r.amount || 0), 0),
     [daySalidasEfectivo]
   );
-  const neto = total - expensesTotal;
+  const neto = total - egresosEfectivo;
   const digitalCobrado = total - (byMethod['efectivo'] ?? 0);
 
   const isToday = selectedDay === todayKey;
@@ -281,7 +281,7 @@ export function CajaView() {
       icon: 'ArrowUpFromLine',
       iconCls: 'bg-cg-bg-hover text-cg-text-secondary border border-cg-border',
       label: 'Egresos',
-      value: expensesTotal > 0 ? `− ${formatMoney(expensesTotal)}` : formatMoney(0),
+      value: egresosEfectivo > 0 ? `− ${formatMoney(egresosEfectivo)}` : formatMoney(0),
       sub: `${daySalidasEfectivo.length} en efectivo · desde Movimientos`,
     }),
     tile({
@@ -557,7 +557,7 @@ export function CajaView() {
       h(CashCloseSection, {
         businessDay: selectedDay,
         efectivoCobrado: byMethod['efectivo'] ?? 0,
-        egresos: expensesTotal,
+        egresos: egresosEfectivo,
         digitalCobrado,
         existingClose: close,
         reload: reloadClose,

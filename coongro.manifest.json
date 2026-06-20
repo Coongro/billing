@@ -63,11 +63,6 @@
         "prefix": "billing.payments"
       },
       {
-        "module": "./dist/repositories/expense.repository.js",
-        "export": "ExpenseRepository",
-        "prefix": "billing.expenses"
-      },
-      {
         "module": "./dist/repositories/cash-close.repository.js",
         "export": "CashCloseRepository",
         "prefix": "billing.cashCloses"

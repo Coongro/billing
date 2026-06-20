@@ -5,7 +5,6 @@ export default defineConfig({
     './src/schema/account.ts',
     './src/schema/account-line.ts',
     './src/schema/payment.ts',
-    './src/schema/expense.ts',
     './src/schema/cash-close.ts',
   ],
   out: './drizzle',
