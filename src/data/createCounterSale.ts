@@ -5,6 +5,62 @@ export interface CounterSaleLine {
   description: string;
   quantity: string;
   unitPrice: string;
+  /** Reparto en lotes elegido en el editor "¿De qué lote sale?" (med/vacc). Si viene, descuenta
+   * de esos lotes exactos; si no, FIFO automático. */
+  batches?: Array<{ batchId: string; quantity: number }>;
+}
+
+/** Descuenta cantidades de lotes puntuales (el reparto elegido por el usuario). */
+async function deductByBatches(
+  productId: string,
+  batches: Array<{ batchId: string; quantity: number }>,
+  accountId: string
+): Promise<void> {
+  for (const b of batches) {
+    await actions.execute('products.batches.consume', {
+      productId,
+      quantity: b.quantity,
+      batchId: b.batchId,
+      referenceType: 'sale',
+      referenceId: accountId,
+    });
+  }
+}
+
+/**
+ * Descuenta el stock de un producto vendido: del lote que vence primero (FIFO) vía el motor de
+ * lotes de products → la salida queda en la trazabilidad del lote, igual que una dispensación.
+ * Lo que los lotes no cubran (producto sin lotes, ej. pet shop) baja del stock genérico.
+ */
+/** Descuenta una línea: de los lotes elegidos si vienen, si no FIFO/genérico automático. */
+async function deductLine(l: CounterSaleLine, accountId: string): Promise<void> {
+  if (!l.productId) return;
+  if (l.batches && l.batches.length > 0) {
+    await deductByBatches(l.productId, l.batches, accountId);
+  } else {
+    await deductStock(l.productId, Number(l.quantity), accountId);
+  }
+}
+
+async function deductStock(productId: string, quantity: number, accountId: string): Promise<void> {
+  const result = await actions.execute<{ shortfall?: number }>('products.batches.consume', {
+    productId,
+    quantity,
+    referenceType: 'sale',
+    referenceId: accountId,
+  });
+  const shortfall = Number(result?.shortfall ?? 0);
+  if (shortfall > 0) {
+    await actions.execute('products.stock.create', {
+      data: {
+        product_id: productId,
+        type: 'out',
+        quantity: String(shortfall),
+        reference_type: 'sale',
+        reference_id: accountId,
+      },
+    });
+  }
 }
 
 /**
@@ -43,19 +99,10 @@ export async function createCounterSale(input: {
       unitPrice: String(Number(l.unitPrice) || 0),
       sourceType: 'product',
     });
-    // Baja de stock (blando): vender descuenta del catálogo de products. Si products no está
-    // o el producto no se trackea, la venta igual se cobra.
+    // Baja de stock (blando): de los lotes elegidos si vienen, si no FIFO automático.
     if (l.productId) {
       try {
-        await actions.execute('products.stock.create', {
-          data: {
-            product_id: l.productId,
-            type: 'out',
-            quantity: l.quantity,
-            reference_type: 'sale',
-            reference_id: account.id,
-          },
-        });
+        await deductLine(l, account.id);
       } catch {
         /* products no disponible o sin stock track */
       }

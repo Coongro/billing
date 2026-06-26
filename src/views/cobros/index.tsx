@@ -25,6 +25,35 @@ function monthStartKey(): string {
   return new Date().toISOString().slice(0, 8) + '01';
 }
 
+/** Píldora de estado de pago con icono (diseño Cobros): Pagada / Parcial+saldo / Impaga. */
+function payPill(icon: string, label: string, bg: string, fg: string, extra?: string) {
+  return h(
+    'span',
+    { style: { display: 'inline-flex', alignItems: 'center', gap: '10px' } },
+    h(
+      'span',
+      {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
+          fontWeight: 500,
+          fontSize: '12px',
+          borderRadius: '999px',
+          padding: '3px 10px',
+          background: bg,
+          color: fg,
+        },
+      },
+      h(UI.DynamicIcon, { icon, size: 12 } as any),
+      label
+    ),
+    extra
+      ? h('span', { style: { fontSize: '12.5px', color: 'var(--cg-text-muted)' } }, extra)
+      : null
+  );
+}
+
 export function CobrosView(props: { openAccountId?: string } = {}) {
   const [range, setRange] = useState<RangeFilter>('mes');
   const [payFilter, setPayFilter] = useState<PayFilter>('todas');
@@ -121,14 +150,17 @@ export function CobrosView(props: { openAccountId?: string } = {}) {
         header: 'Pago',
         render: (r: BillingAccountRow) => {
           if (r.paymentStatus === 'na') return h('span', { className: 'text-cg-text-muted' }, '—');
-          if (r.paymentStatus === 'paid') return h(UI.Badge, { variant: 'paid' } as any, 'Pagada');
+          if (r.paymentStatus === 'paid')
+            return payPill('Check', 'Pagada', 'var(--cg-success-bg)', 'var(--cg-success)');
           if (r.paymentStatus === 'partial')
-            return h(
-              UI.Badge,
-              { variant: 'orange' } as any,
-              `Parcial · saldo ${formatMoney(r.balance)}`
+            return payPill(
+              'Contrast',
+              'Parcial',
+              'var(--cg-warning-bg)',
+              'var(--cg-warning)',
+              `saldo ${formatMoney(r.balance)}`
             );
-          return h(UI.Badge, { variant: 'danger-soft' } as any, 'Impaga');
+          return payPill('TriangleAlert', 'Impaga', 'var(--cg-danger-bg)', 'var(--cg-danger)');
         },
       },
       {
@@ -233,6 +265,10 @@ export function CobrosView(props: { openAccountId?: string } = {}) {
       subtitle: detailRow
         ? [detailRow.clientName, detailRow.petName].filter(Boolean).join(' · ')
         : undefined,
+      clientName: detailRow?.clientName,
+      petName: detailRow?.petName,
+      source: detailRow?.source,
+      openedAt: detailRow?.openedAt,
       onClose: () => setDetailId(null),
       onChanged: () => void reload(),
     }),
