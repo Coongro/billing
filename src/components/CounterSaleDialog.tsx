@@ -1,91 +1,359 @@
 import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
-const UI = getHostUI();
 import { PAYMENT_METHODS, METHOD_LABEL } from '../constants.js';
 import { createCounterSale } from '../data/createCounterSale.js';
-import { useProductCatalog } from '../data/useProductCatalog.js';
+import { lotesFEFO, loteRecomendado, repartir } from '../data/loteUtils.js';
+import { useContacts } from '../data/useContacts.js';
+import type { ContactOption } from '../data/useContacts.js';
+import { useSaleCatalog } from '../data/useSaleCatalog.js';
+import type { SaleGroup, SaleProduct, ProductBucket } from '../data/useSaleCatalog.js';
 import { formatMoney } from '../utils/money.js';
 import { toast } from '../utils/toast.js';
 
+import { LoteEditor } from './LoteEditor.js';
+
+const UI = getHostUI();
 const React = getHostReact();
-const { useState, useEffect, useMemo } = React;
+const { useState, useEffect, useRef } = React;
 const h = React.createElement;
+const ic = (name: string, size = 16) => h(UI.DynamicIcon, { icon: name, size } as any);
+
+const MEDIO_ICON: Record<string, string> = {
+  efectivo: 'Banknote',
+  transferencia: 'ArrowLeftRight',
+  debito: 'CreditCard',
+  credito: 'CreditCard',
+};
+const MEDIO_CAJA: Record<string, { caja: boolean; nota: string }> = {
+  efectivo: { caja: true, nota: 'Entra a la caja del día' },
+  transferencia: { caja: false, nota: 'No toca la caja' },
+  debito: { caja: false, nota: 'Se acredita después' },
+  credito: { caja: false, nota: 'Se acredita después' },
+};
+const TYPE_TAG: Record<ProductBucket, string> = { med: 'Med.', vacc: 'Vacuna', insumo: 'Insumo' };
+const BUCKET_ICON: Record<ProductBucket, string> = { med: 'Pill', vacc: 'Syringe', insumo: 'Box' };
+const UNIDAD = 'u.';
 
 interface LineState {
-  productId: string;
-  description: string;
-  quantity: string;
-  unitPrice: string;
+  key: string;
+  product: SaleProduct;
+  quantity: number;
+  unitPrice: number;
+  loteNro: string | null;
+}
+const esLoteado = (p: SaleProduct) => p.bucket === 'med' || p.bucket === 'vacc';
+
+/** Hook: cerrar un menú con click afuera / Escape + autofocus al input. */
+function useMenuDismiss(open: boolean, close: () => void, wrap: any, input: any) {
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: any) => {
+      if (wrap.current && !wrap.current.contains(e.target)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    const t = setTimeout(() => input.current?.focus(), 10);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+      clearTimeout(t);
+    };
+  }, [open]);
 }
 
-const emptyLine = (): LineState => ({
-  productId: '',
-  description: '',
-  quantity: '1',
-  unitPrice: '',
-});
+// ── Cliente (opcional) con buscador ──
+function ClienteField(props: {
+  contacts: ContactOption[];
+  value: ContactOption | null;
+  onChange: (c: ContactOption | null) => void;
+}) {
+  const { contacts, value, onChange } = props;
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const wrap = useRef<any>(null);
+  const input = useRef<any>(null);
+  const close = () => {
+    setOpen(false);
+    setQ('');
+  };
+  useMenuDismiss(open, close, wrap, input);
+  const norm = (s: string) => (s || '').toLowerCase();
+  const results = contacts.filter((c) => !q || norm(c.name).includes(norm(q)));
+
+  return h(
+    'div',
+    { className: 'cr-cli-wrap', ref: wrap },
+    value
+      ? h(
+          'div',
+          { className: 'cr-cli on' },
+          h('div', { className: 'cr-cli-ic' }, ic('User', 17)),
+          h(
+            'div',
+            { className: 'cr-cli-txt' },
+            h('div', { className: 'cr-cli-name' }, value.name),
+            h('div', { className: 'cr-cli-meta' }, 'Venta asociada a este cliente')
+          ),
+          h(
+            'button',
+            { className: 'cr-cli-x', onClick: () => onChange(null), title: 'Quitar cliente' },
+            ic('X', 14)
+          )
+        )
+      : h(
+          'div',
+          { className: 'cr-cli' },
+          h('div', { className: 'cr-cli-ic dash' }, ic('UserMinus', 17)),
+          h(
+            'div',
+            { className: 'cr-cli-txt' },
+            h('div', { className: 'cr-cli-name' }, 'Sin cliente · solo mostrador'),
+            h('div', { className: 'cr-cli-meta' }, 'Venta anónima — está perfecto así.')
+          ),
+          contacts.length > 0
+            ? h(
+                'button',
+                { className: 'cr-cli-add', onClick: () => setOpen((o: boolean) => !o) },
+                ic('Plus', 13),
+                ' Asociar'
+              )
+            : null
+        ),
+    open && !value
+      ? h(
+          'div',
+          { className: 'cr-menu' },
+          h(
+            'div',
+            { className: 'cr-menu-search' },
+            ic('Search', 15),
+            h('input', {
+              ref: input,
+              value: q,
+              placeholder: 'Buscar cliente…',
+              onChange: (e: any) => setQ(e.target.value),
+            } as any)
+          ),
+          h(
+            'div',
+            { className: 'cr-menu-list' },
+            ...results.map((c) =>
+              h(
+                'button',
+                {
+                  key: c.id,
+                  type: 'button',
+                  className: 'cr-result',
+                  onClick: () => {
+                    onChange(c);
+                    close();
+                  },
+                } as any,
+                h('span', { className: 'cr-result-ic' }, ic('User', 15)),
+                h('div', { className: 'cr-rtxt' }, h('div', { className: 'nm' }, c.name))
+              )
+            ),
+            results.length === 0
+              ? h('div', { className: 'cr-menu-empty' }, 'Ningún cliente coincide.')
+              : null
+          )
+        )
+      : null
+  );
+}
+
+// ── Selectores de producto por tipo (tabs + menú compartido) ──
+function CategoryAdder(props: {
+  groups: SaleGroup[];
+  chosen: Set<string>;
+  onAdd: (p: SaleProduct) => void;
+}) {
+  const { groups, chosen, onAdd } = props;
+  const [open, setOpen] = useState<ProductBucket | null>(null);
+  const [q, setQ] = useState('');
+  const wrap = useRef<any>(null);
+  const input = useRef<any>(null);
+  const close = () => {
+    setOpen(null);
+    setQ('');
+  };
+  useMenuDismiss(!!open, close, wrap, input);
+  const g = open ? groups.find((x) => x.key === open) : null;
+  const norm = (s: string) => (s || '').toLowerCase();
+  const results = g ? g.products.filter((p) => !q || norm(p.name).includes(norm(q))) : [];
+  const activate = (id: ProductBucket) => (open === id ? close() : (setOpen(id), setQ('')));
+
+  return h(
+    'div',
+    { className: 'cr-add-wrap', ref: wrap },
+    h(
+      'div',
+      {
+        className: 'cr-add-tabs',
+        style: { gridTemplateColumns: `repeat(${groups.length || 1}, 1fr)` },
+      },
+      ...groups.map((grp) =>
+        h(
+          'button',
+          {
+            key: grp.key,
+            type: 'button',
+            className: `cr-add-tab ${grp.key} ${open === grp.key ? 'on' : ''}`,
+            onClick: () => activate(grp.key),
+          },
+          ic(grp.icon, 15),
+          ` ${grp.label}`,
+          h('span', { className: 'pl' }, ic(open === grp.key ? 'X' : 'Plus', 14))
+        )
+      )
+    ),
+    open && g
+      ? h(
+          'div',
+          { className: 'cr-menu cr-add-menu' },
+          h(
+            'div',
+            { className: 'cr-menu-search' },
+            h(
+              'span',
+              { className: `cr-type ${g.key}` },
+              ic(BUCKET_ICON[g.key], 12),
+              ` ${TYPE_TAG[g.key]}`
+            ),
+            ic('Search', 15),
+            h('input', {
+              ref: input,
+              value: q,
+              placeholder: `Buscar ${g.label.toLowerCase()}…`,
+              onChange: (e: any) => setQ(e.target.value),
+            } as any)
+          ),
+          h(
+            'div',
+            { className: 'cr-menu-list' },
+            ...results.map((p) =>
+              h(
+                'button',
+                {
+                  key: p.id,
+                  type: 'button',
+                  className: 'cr-result',
+                  onClick: () => {
+                    onAdd(p);
+                    close();
+                  },
+                } as any,
+                h('span', { className: 'cr-result-ic' }, ic(g.icon, 15)),
+                h(
+                  'div',
+                  { className: 'cr-rtxt' },
+                  h('div', { className: 'nm' }, p.name),
+                  chosen.has(p.id) ? h('div', { className: 'meta' }, 'ya en la venta') : null
+                ),
+                h('span', { className: 'price' }, formatMoney(p.salePrice ?? 0))
+              )
+            ),
+            results.length === 0
+              ? h('div', { className: 'cr-menu-empty' }, 'Nada del catálogo coincide.')
+              : null
+          )
+        )
+      : null
+  );
+}
 
 interface CounterSaleDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  /** Se llama tras una venta exitosa para refrescar la lista de cobros. */
   onSaved: () => void;
 }
 
 /**
- * Venta de mostrador: diálogo de venta rápida sin consulta (antipulgas, alimento, etc.).
- * Producto(s) + cantidad + medio de pago → cobra en el acto y entra a la Caja. Reutiliza el
- * patrón de líneas del módulo de compras (purchases), adaptado a venta (precio + cobro).
+ * Cobro rápido — venta de mostrador (diseño Claude Design "Cobro Rapido"). Drawer propio
+ * (`.cr-drawer`, igual que "Registrar salida"), markup espejo de cobro-drawer.jsx con clases
+ * `cr-*` de `styles/cobro-rapido.css` (colores, hover y animaciones del diseño). Cliente
+ * opcional con buscador, productos por tipo, descuento del lote elegido (FEFO por defecto).
  */
 export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDialogProps) {
-  const products = useProductCatalog();
+  const groups = useSaleCatalog();
+  const contacts = useContacts();
+  const [cliente, setCliente] = useState<ContactOption | null>(null);
   const [method, setMethod] = useState('efectivo');
-  const [lines, setLines] = useState<LineState[]>([emptyLine()]);
+  const [items, setItems] = useState<LineState[]>([]);
   const [busy, setBusy] = useState(false);
+  const [loteFor, setLoteFor] = useState<string | null>(null);
 
-  // Reset al abrir.
   useEffect(() => {
     if (open) {
+      setCliente(null);
       setMethod('efectivo');
-      setLines([emptyLine()]);
+      setItems([]);
+      setLoteFor(null);
     }
   }, [open]);
 
-  const total = useMemo(
-    () => lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0),
-    [lines]
-  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loteFor) onOpenChange(false);
+    };
+    if (open) window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, loteFor, onOpenChange]);
 
-  const setLine = (i: number, patch: Partial<LineState>) =>
-    setLines((prev: LineState[]) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  if (!open) return null;
 
-  const onPickProduct = (i: number, productId: string) => {
-    const p = products.find((o) => o.id === productId);
-    setLine(i, { productId, description: p?.name ?? '', unitPrice: p?.salePrice ?? '' });
+  const seq = () => `l${Date.now()}${Math.round(items.length)}`;
+  const addProduct = (p: SaleProduct) => {
+    const reco = esLoteado(p) ? loteRecomendado(lotesFEFO(p.lotes)) : null;
+    setItems((prev) => [
+      ...prev,
+      {
+        key: seq() + prev.length,
+        product: p,
+        quantity: 1,
+        unitPrice: Number(p.salePrice) || 0,
+        loteNro: reco?.nro ?? null,
+      },
+    ]);
   };
+  const patchLine = (key: string, patch: Partial<LineState>) =>
+    setItems((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const removeLine = (key: string) => setItems((prev) => prev.filter((l) => l.key !== key));
 
-  const addLine = () => setLines((prev: LineState[]) => [...prev, emptyLine()]);
-  const removeLine = (i: number) =>
-    setLines((prev: LineState[]) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
+  const faltaStock = (it: LineState): boolean =>
+    esLoteado(it.product)
+      ? repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro).faltan > 0
+      : it.quantity > it.product.stock;
+  const haySinStock = items.some(faltaStock);
+  const total = items.reduce((s, it) => s + it.quantity * it.unitPrice, 0);
+  const valid = items.length > 0 && !haySinStock && total > 0;
+  const caja = MEDIO_CAJA[method] ?? { caja: false, nota: '' };
 
   const save = async () => {
-    const valid = lines.filter(
-      (l) => (Number(l.quantity) || 0) > 0 && (l.productId || l.description.trim())
-    );
-    if (valid.length === 0) {
-      toast('Falta el detalle', 'Agregá al menos un producto con cantidad.', 'info');
-      return;
-    }
+    if (!valid) return;
     setBusy(true);
     try {
       await createCounterSale({
+        contactId: cliente?.id ?? null,
         method,
-        lines: valid.map((l) => ({
-          productId: l.productId || null,
-          description: l.description.trim() || 'Producto',
-          quantity: l.quantity,
-          unitPrice: String(Number(l.unitPrice) || 0),
-        })),
+        lines: items.map((it) => {
+          const batches = esLoteado(it.product)
+            ? repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro).tramos.map((t) => ({
+                batchId: t.batchId,
+                quantity: t.take,
+              }))
+            : undefined;
+          return {
+            productId: it.product.id,
+            description: it.product.name,
+            quantity: String(it.quantity),
+            unitPrice: String(it.unitPrice),
+            batches,
+          };
+        }),
       });
       toast(
         'Venta cobrada',
@@ -101,155 +369,337 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     }
   };
 
-  return h(
-    UI.FormDialog,
-    {
-      open,
-      onOpenChange,
-      title: 'Cobro rápido',
-      size: 'lg',
-      footer: h(
+  // ── Item ──
+  const lotePick = (it: LineState) => {
+    const { tramos, faltan } = repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro);
+    const insuf = faltan > 0;
+    let main: any,
+      sub: any = null;
+    if (insuf) main = h('span', { className: 'cr-lote-pick-main warn' }, 'Sin stock suficiente');
+    else if (tramos.length > 1) {
+      main = h('span', { className: 'cr-lote-pick-main' }, `Reparto entre ${tramos.length} lotes`);
+      sub = tramos.map((t) => `${t.take} de ${t.nro}`).join(' + ');
+    } else if (tramos.length === 1) {
+      main = h('span', { className: 'cr-lote-pick-main' }, `Sale del lote ${tramos[0].nro}`);
+      sub = tramos[0].estado.label;
+    } else main = h('span', { className: 'cr-lote-pick-main' }, 'Elegir lote');
+    return h(
+      'button',
+      {
+        type: 'button',
+        className: `cr-lote-pick ${insuf ? 'bad' : ''}`,
+        onClick: () => setLoteFor(it.key),
+      },
+      h('span', { className: 'cr-lote-pick-ic' }, ic('Layers', 14)),
+      h(
+        'span',
+        { className: 'cr-lote-pick-txt' },
+        main,
+        sub ? h('span', { className: 'cr-lote-pick-sub' }, sub) : null
+      ),
+      h('span', { className: 'cr-lote-pick-cta' }, ic('ArrowLeftRight', 13), ' Cambiar')
+    );
+  };
+
+  const stockLine = (it: LineState) => {
+    const insuf = it.quantity > it.product.stock;
+    return h(
+      'div',
+      { className: `cr-stock-line ${insuf ? 'bad' : ''}` },
+      ic(insuf ? 'TriangleAlert' : 'Box', 13),
+      insuf
+        ? `Sin stock: hay ${it.product.stock} ${UNIDAD}`
+        : `Stock: ${it.product.stock.toLocaleString('es-AR')} ${UNIDAD} disponibles`
+    );
+  };
+
+  const itemCard = (it: LineState) => {
+    const insuf = faltaStock(it);
+    return h(
+      'div',
+      { key: it.key, className: `cr-item ${insuf ? 'bad' : ''}` },
+      h(
         'div',
-        { className: 'flex items-center justify-between gap-4 w-full' },
+        { className: 'cr-item-head' },
         h(
           'span',
-          { className: 'font-mono font-bold text-base text-cg-text' },
-          `Total ${formatMoney(total)}`
+          { className: `cr-type ${it.product.bucket}` },
+          ic(BUCKET_ICON[it.product.bucket], 12),
+          ` ${TYPE_TAG[it.product.bucket]}`
         ),
+        h('span', { className: 'cr-item-name' }, it.product.name),
         h(
-          'div',
-          { className: 'flex gap-2' },
-          h(
-            UI.Button,
-            {
-              variant: 'ghost',
-              size: 'sm',
-              disabled: busy,
-              onClick: () => onOpenChange(false),
-            } as any,
-            'Cancelar'
-          ),
-          h(
-            UI.Button,
-            { variant: 'brand', size: 'sm', disabled: busy, onClick: () => void save() } as any,
-            'Cobrar'
-          )
+          'button',
+          {
+            className: 'cr-item-del',
+            onClick: () => removeLine(it.key),
+            title: 'Quitar de la venta',
+          },
+          ic('Trash2', 14)
         )
       ),
-    } as any,
-    h(
-      'div',
-      { className: 'flex flex-col gap-4' },
-
-      h(
-        'p',
-        { className: 'text-xs text-cg-text-muted' },
-        'Cobro sin consulta: sumá productos o servicios sueltos. Se cobra en el acto y entra a la caja del día.'
-      ),
-
-      // Ítems
       h(
         'div',
-        { className: 'flex flex-col gap-2' },
-        h('label', { className: 'block text-xs font-semibold text-cg-text-muted' }, 'Productos'),
-        ...lines.map((l, i) =>
+        { className: 'cr-item-grid' },
+        h(
+          'label',
+          { className: 'cr-mini' },
+          h('span', null, 'Cantidad'),
           h(
             'div',
-            { key: i, className: 'grid grid-cols-12 gap-2 items-center' },
+            { className: 'cr-step' },
             h(
-              'div',
-              { className: 'col-span-6' },
-              products.length > 0
-                ? h(
-                    UI.Select,
-                    {
-                      value: l.productId,
-                      onValueChange: (v: string) => onPickProduct(i, v),
-                      placeholder: 'Producto',
-                    } as any,
-                    ...products.map((o) =>
-                      h(UI.SelectItem, { key: o.id, value: o.id } as any, o.name)
-                    )
-                  )
-                : h(UI.Input, {
-                    size: 'sm',
-                    value: l.description,
-                    onChange: (e: any) => setLine(i, { description: e.target.value }),
-                    placeholder: 'Descripción',
-                  } as any)
+              'button',
+              {
+                type: 'button',
+                onClick: () => patchLine(it.key, { quantity: Math.max(1, it.quantity - 1) }),
+                disabled: it.quantity <= 1,
+                'aria-label': 'Menos',
+              } as any,
+              ic('Minus', 15)
             ),
+            h('input', {
+              inputMode: 'numeric',
+              value: it.quantity.toLocaleString('es-AR'),
+              onChange: (e: any) => {
+                const n = parseInt(String(e.target.value).replace(/\D/g, ''), 10);
+                patchLine(it.key, { quantity: Number.isFinite(n) && n > 0 ? n : 1 });
+              },
+            } as any),
             h(
-              'div',
-              { className: 'col-span-2' },
-              h(UI.Input, {
-                type: 'number',
-                size: 'sm',
-                min: 0,
-                step: '1',
-                value: l.quantity,
-                onChange: (e: any) => setLine(i, { quantity: e.target.value }),
-                placeholder: 'Cant.',
-              } as any)
-            ),
-            h(
-              'div',
-              { className: 'col-span-3' },
-              h(UI.Input, {
-                type: 'number',
-                size: 'sm',
-                min: 0,
-                step: '0.01',
-                value: l.unitPrice,
-                onChange: (e: any) => setLine(i, { unitPrice: e.target.value }),
-                placeholder: 'Precio',
-              } as any)
-            ),
-            h(
-              'div',
-              { className: 'col-span-1 flex justify-end' },
-              h(
-                UI.IconButton,
-                {
-                  variant: 'ghost',
-                  size: 'sm',
-                  'aria-label': 'Quitar ítem',
-                  disabled: lines.length === 1,
-                  onClick: () => removeLine(i),
-                } as any,
-                h(UI.DynamicIcon, { icon: 'Trash2', size: 13 } as any)
-              )
+              'button',
+              {
+                type: 'button',
+                onClick: () => patchLine(it.key, { quantity: it.quantity + 1 }),
+                'aria-label': 'Más',
+              } as any,
+              ic('Plus', 15)
             )
           )
         ),
         h(
-          'div',
-          null,
+          'label',
+          { className: 'cr-mini' },
+          h('span', null, 'Precio unit.'),
           h(
-            UI.Button,
-            { variant: 'outline', size: 'sm', onClick: addLine } as any,
-            h(UI.DynamicIcon, { icon: 'Plus', size: 13 } as any),
-            ' Agregar ítem'
+            'div',
+            { className: 'cr-num-pre' },
+            h('span', null, '$'),
+            h('input', {
+              className: 'cr-num',
+              inputMode: 'numeric',
+              placeholder: '0',
+              value: it.unitPrice ? it.unitPrice.toLocaleString('es-AR') : '',
+              onChange: (e: any) => {
+                const n = parseInt(String(e.target.value).replace(/\D/g, ''), 10);
+                patchLine(it.key, { unitPrice: Number.isFinite(n) ? n : 0 });
+              },
+            } as any)
           )
         )
       ),
-
-      // Medio de pago
+      esLoteado(it.product) ? lotePick(it) : stockLine(it),
       h(
         'div',
-        null,
+        { className: 'cr-item-calc' },
         h(
-          'label',
-          { className: 'block text-xs font-semibold text-cg-text-muted mb-1' },
-          'Cómo se pagó'
+          'span',
+          { className: 'cr-calc-formula' },
+          h('strong', null, it.quantity.toLocaleString('es-AR')),
+          ' × ',
+          h('strong', null, formatMoney(it.unitPrice))
         ),
-        h(UI.SegmentedControl, {
-          value: method,
-          options: PAYMENT_METHODS,
-          onChange: (v: string) => setMethod(v),
-          size: 'sm',
-          'aria-label': 'Medio de pago',
-        } as any)
+        h('span', { className: 'cr-calc-sub' }, formatMoney(it.quantity * it.unitPrice))
       )
-    )
+    );
+  };
+
+  const editing = items.find((it) => it.key === loteFor);
+
+  return h(
+    'div',
+    { className: 'cr' },
+    h('div', { className: 'cr-scrim', onClick: () => onOpenChange(false) }),
+    h(
+      'aside',
+      { className: 'cr-drawer', role: 'dialog', 'aria-label': 'Cobro rápido' } as any,
+      // Header
+      h(
+        'div',
+        { className: 'cr-drawer-head' },
+        h(
+          'div',
+          { className: 'cr-head-top' },
+          h('div', { className: 'cr-head-ic' }, ic('Zap', 18)),
+          h(
+            'button',
+            {
+              className: 'cr-iconbtn',
+              onClick: () => onOpenChange(false),
+              'aria-label': 'Cerrar',
+            } as any,
+            ic('X', 16)
+          )
+        ),
+        h('h2', { className: 'cr-drawer-title' }, 'Cobro rápido'),
+        h(
+          'p',
+          { className: 'cr-drawer-sub' },
+          'Venta de mostrador, sin consulta. Se cobra en el momento y entra a la caja del día.'
+        )
+      ),
+      // Body
+      h(
+        'div',
+        { className: 'cr-drawer-body' },
+        h(
+          'div',
+          { className: 'cr-fld' },
+          h(
+            'span',
+            { className: 'cr-label' },
+            'Cliente ',
+            h('span', { className: 'cr-opt' }, '· opcional')
+          ),
+          h(ClienteField, { contacts, value: cliente, onChange: setCliente })
+        ),
+        h(
+          'div',
+          { className: 'cr-fld' },
+          h(
+            'span',
+            { className: 'cr-label' },
+            'Productos ',
+            h('span', { className: 'cr-opt' }, '· elegí por tipo')
+          ),
+          groups.length > 0
+            ? h(CategoryAdder, {
+                groups,
+                chosen: new Set(items.map((it) => it.product.id)),
+                onAdd: addProduct,
+              })
+            : h('p', { className: 'cr-fld-hint' }, 'No hay catálogo disponible.'),
+          items.length > 0
+            ? h('div', { className: 'cr-items' }, ...items.map(itemCard))
+            : h(
+                'div',
+                { className: 'cr-empty' },
+                h('div', { className: 'cr-empty-ic' }, ic('Zap', 20)),
+                h('div', { className: 'cr-empty-t' }, 'Empezá la venta'),
+                h(
+                  'div',
+                  { className: 'cr-empty-s' },
+                  'Elegí medicamentos, vacunas o insumos del catálogo. Se van sumando acá.'
+                )
+              )
+        ),
+        items.length > 0
+          ? h(
+              'div',
+              { className: 'cr-fld' },
+              h('span', { className: 'cr-label' }, 'Medio de cobro'),
+              h(
+                'span',
+                { className: 'cr-fld-hint' },
+                'Solo el efectivo entra a la caja física del día.'
+              ),
+              h(
+                'div',
+                { className: 'cr-medios' },
+                ...PAYMENT_METHODS.map((m) =>
+                  h(
+                    'button',
+                    {
+                      key: m.value,
+                      type: 'button',
+                      className: `cr-medio ${method === m.value ? 'sel' : ''}`,
+                      onClick: () => setMethod(m.value),
+                    },
+                    ic(MEDIO_ICON[m.value] ?? 'Wallet', 16),
+                    h('span', null, m.label)
+                  )
+                )
+              )
+            )
+          : null
+      ),
+      // Footer
+      h(
+        'div',
+        { className: 'cr-drawer-foot' },
+        h(
+          'div',
+          { className: 'cr-foot-total' },
+          h(
+            'span',
+            { className: 'cr-foot-label' },
+            'Total a cobrar',
+            items.length > 0
+              ? h(
+                  'span',
+                  { className: 'cr-foot-cnt' },
+                  ` · ${items.length} ${items.length === 1 ? 'producto' : 'productos'}`
+                )
+              : null
+          ),
+          h('span', { className: `cr-foot-amt ${haySinStock ? 'danger' : ''}` }, formatMoney(total))
+        ),
+        items.length > 0
+          ? haySinStock
+            ? h(
+                'div',
+                { className: 'cr-foot-destino bad' },
+                ic('TriangleAlert', 14),
+                ' Revisá el stock de los productos marcados antes de cobrar.'
+              )
+            : caja.caja
+              ? h(
+                  'div',
+                  { className: 'cr-foot-destino caja' },
+                  ic('Wallet', 14),
+                  h('span', null, 'Entra a la caja del día')
+                )
+              : h(
+                  'div',
+                  { className: 'cr-foot-destino' },
+                  ic(MEDIO_ICON[method] ?? 'Wallet', 14),
+                  h('span', null, `${METHOD_LABEL[method] ?? method} · no toca la caja`),
+                  h('span', { className: 'cr-foot-flow muted' }, caja.nota)
+                )
+          : null,
+        h(
+          'div',
+          { className: 'cr-foot-actions' },
+          h(
+            UI.Button,
+            { variant: 'outline', disabled: busy, onClick: () => onOpenChange(false) } as any,
+            'Cancelar'
+          ),
+          h(
+            UI.Button,
+            {
+              variant: 'brand',
+              disabled: busy || !valid,
+              onClick: () => void save(),
+              style: { flex: 1 },
+            } as any,
+            ic('Check', 15),
+            valid ? ` Confirmar cobro · ${formatMoney(total)}` : ' Confirmar cobro'
+          )
+        )
+      )
+    ),
+    editing
+      ? h(LoteEditor, {
+          productName: editing.product.name,
+          unidad: UNIDAD,
+          bucketIcon: editing.product.bucket === 'vacc' ? 'Syringe' : 'Pill',
+          lotes: editing.product.lotes,
+          cant: editing.quantity,
+          loteNro: editing.loteNro,
+          onChange: (nro: string) => patchLine(editing.key, { loteNro: nro }),
+          onClose: () => setLoteFor(null),
+        })
+      : null
   );
 }
