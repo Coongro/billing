@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { and, eq, gte, lte } from 'drizzle-orm';
@@ -105,7 +104,7 @@ export class AccountLineRepository {
     const computedSubtotal = subtotal ?? String(Number(quantity || '1') * Number(unitPrice || '0'));
     // Cast: drizzle $inferInsert omite columnas nullable (bug conocido); runtime OK.
     const row = {
-      id: randomUUID(),
+      id: crypto.randomUUID(),
       account_id: accountId,
       product_id: productId,
       description,
