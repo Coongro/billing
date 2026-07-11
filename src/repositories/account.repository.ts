@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
@@ -84,7 +83,7 @@ export class AccountRepository {
     // Cast: drizzle $inferInsert omite columnas nullable (bug conocido); el runtime
     // inserta igual todas las claves del objeto. Ver drizzle_pgschema_insert_type_bug.
     const row = {
-      id: randomUUID(),
+      id: crypto.randomUUID(),
       contact_id: contactId,
       pet_id: petId,
       consultation_id: consultationId,
