@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { and, eq, gte, lte } from 'drizzle-orm';
@@ -47,7 +46,7 @@ export class PaymentRepository {
   }): Promise<PaymentRow> {
     // Cast: drizzle $inferInsert omite columnas nullable (bug conocido); runtime inserta OK.
     const row = {
-      id: randomUUID(),
+      id: crypto.randomUUID(),
       account_id: accountId,
       amount,
       method,

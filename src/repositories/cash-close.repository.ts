@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { eq } from 'drizzle-orm';
@@ -51,7 +50,7 @@ export class CashCloseRepository {
       return updated[0];
     }
     const row = {
-      id: randomUUID(),
+      id: crypto.randomUUID(),
       business_day: businessDay,
       opening_float: openingFloat,
       expected_cash: expectedCash,
