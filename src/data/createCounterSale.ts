@@ -1,4 +1,6 @@
-import { actions } from '@coongro/plugin-sdk';
+import { actions, settings } from '@coongro/plugin-sdk';
+
+import { toast } from '../utils/toast.js';
 
 export interface CounterSaleLine {
   productId: string | null;
@@ -10,42 +12,59 @@ export interface CounterSaleLine {
   batches?: Array<{ batchId: string; quantity: number }>;
 }
 
-/** Descuenta cantidades de lotes puntuales (el reparto elegido por el usuario). */
+/** Resultado del motor de lotes de products (subset que nos interesa). */
+interface ConsumeResult {
+  batches?: Array<{ expired?: boolean }>;
+  shortfall?: number;
+}
+
+/** True si el consumo tocó algún lote vencido (política "avisar"). */
+function usedExpired(result: ConsumeResult | undefined): boolean {
+  return Boolean(result?.batches?.some((b) => b.expired));
+}
+
+/**
+ * Descuenta cantidades de lotes puntuales (el reparto elegido por el usuario). Selección MANUAL:
+ * el usuario eligió los lotes explícitamente, así que se permite descontar aunque estén vencidos
+ * (`allowExpired`) — el aviso lo da el llamador. Devuelve si se tocó algún lote vencido.
+ */
 async function deductByBatches(
   productId: string,
   batches: Array<{ batchId: string; quantity: number }>,
   accountId: string
-): Promise<void> {
+): Promise<boolean> {
+  let expired = false;
   for (const b of batches) {
-    await actions.execute('products.batches.consume', {
+    const result = await actions.execute<ConsumeResult>('products.batches.consume', {
       productId,
       quantity: b.quantity,
       batchId: b.batchId,
+      allowExpired: true,
       referenceType: 'sale',
       referenceId: accountId,
     });
+    if (usedExpired(result)) expired = true;
   }
+  return expired;
 }
 
 /**
  * Descuenta el stock de un producto vendido: del lote que vence primero (FIFO) vía el motor de
  * lotes de products → la salida queda en la trazabilidad del lote, igual que una dispensación.
  * Lo que los lotes no cubran (producto sin lotes, ej. pet shop) baja del stock genérico.
+ * FIFO respeta la política de vencidos: con `allowExpired` false (block) el motor saltea los
+ * vencidos. Devuelve si se tocó algún lote vencido.
  */
-/** Descuenta una línea: de los lotes elegidos si vienen, si no FIFO/genérico automático. */
-async function deductLine(l: CounterSaleLine, accountId: string): Promise<void> {
-  if (!l.productId) return;
-  if (l.batches && l.batches.length > 0) {
-    await deductByBatches(l.productId, l.batches, accountId);
-  } else {
-    await deductStock(l.productId, Number(l.quantity), accountId);
-  }
-}
-
-async function deductStock(productId: string, quantity: number, accountId: string): Promise<void> {
-  const result = await actions.execute<{ shortfall?: number }>('products.batches.consume', {
+async function deductStock(
+  productId: string,
+  quantity: number,
+  accountId: string,
+  allowExpired: boolean
+): Promise<boolean> {
+  const result = await actions.execute<ConsumeResult>('products.batches.consume', {
     productId,
     quantity,
+    allowExpired,
     referenceType: 'sale',
     referenceId: accountId,
   });
@@ -61,6 +80,20 @@ async function deductStock(productId: string, quantity: number, accountId: strin
       },
     });
   }
+  return usedExpired(result);
+}
+
+/** Descuenta una línea: de los lotes elegidos si vienen, si no FIFO/genérico automático. */
+async function deductLine(
+  l: CounterSaleLine,
+  accountId: string,
+  allowExpiredFifo: boolean
+): Promise<boolean> {
+  if (!l.productId) return false;
+  if (l.batches && l.batches.length > 0) {
+    return deductByBatches(l.productId, l.batches, accountId);
+  }
+  return deductStock(l.productId, Number(l.quantity), accountId, allowExpiredFifo);
 }
 
 /**
@@ -84,12 +117,18 @@ export async function createCounterSale(input: {
 
   const total = valid.reduce((s, l) => s + Number(l.quantity) * (Number(l.unitPrice) || 0), 0);
 
+  // Política de lotes vencidos para el FIFO automático (setting genérica de stock de products).
+  // 'block' (default) → el FIFO no toca vencidos; 'warn' → los usa y avisamos al final.
+  const expiredPolicy = (await settings.get<string>('products.stock.expiredLots')) ?? 'block';
+  const allowExpiredFifo = expiredPolicy === 'warn';
+
   const account = await actions.execute<{ id: string } | undefined>(
     'billing.accounts.openForVisit',
     { contactId: input.contactId ?? null } // sin consultationId → cuenta de mostrador ('counter')
   );
   if (!account?.id) throw new Error('No se pudo abrir la cuenta');
 
+  let anyExpired = false;
   for (const l of valid) {
     await actions.execute('billing.lines.add', {
       accountId: account.id,
@@ -102,7 +141,7 @@ export async function createCounterSale(input: {
     // Baja de stock (blando): de los lotes elegidos si vienen, si no FIFO automático.
     if (l.productId) {
       try {
-        await deductLine(l, account.id);
+        anyExpired = (await deductLine(l, account.id, allowExpiredFifo)) || anyExpired;
       } catch {
         /* products no disponible o sin stock track */
       }
@@ -116,5 +155,13 @@ export async function createCounterSale(input: {
       amount: String(total),
       method: input.method,
     });
+  }
+
+  if (anyExpired) {
+    toast(
+      'Lote vencido',
+      'La venta descontó de un lote vencido. Verificá el vencimiento del producto.',
+      'info'
+    );
   }
 }
