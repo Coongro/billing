@@ -1,5 +1,7 @@
 import { actions, settings } from '@coongro/plugin-sdk';
 
+import { creditSurcharge, roundCash, CREDIT_SURCHARGE_SOURCE } from '../settings/derive.js';
+import type { BillingSettings } from '../settings/derive.js';
 import { toast } from '../utils/toast.js';
 
 export interface CounterSaleLine {
@@ -122,6 +124,22 @@ export async function createCounterSale(input: {
   const expiredPolicy = (await settings.get<string>('products.stock.expiredLots')) ?? 'block';
   const allowExpiredFifo = expiredPolicy === 'warn';
 
+  // Ajustes al total según el medio: recargo por crédito y redondeo de efectivo (settings de
+  // billing). Se agregan como una línea propia para que la cuenta cierre balanceada y el ajuste
+  // quede trazable. Recargo (crédito) y redondeo (efectivo) son excluyentes por medio.
+  const creditPct =
+    input.method === 'credito'
+      ? Number(await settings.get<number>('billing.payments.creditSurcharge')) || 0
+      : 0;
+  const roundingMode =
+    input.method === 'efectivo'
+      ? (((await settings.get<string>('billing.cash.rounding')) ??
+          'off') as BillingSettings['cashRounding'])
+      : 'off';
+  const surcharge = creditSurcharge(total, creditPct);
+  const roundingDelta = surcharge === 0 ? roundCash(total, roundingMode) - total : 0;
+  const finalTotal = total + surcharge + roundingDelta;
+
   const account = await actions.execute<{ id: string } | undefined>(
     'billing.accounts.openForVisit',
     { contactId: input.contactId ?? null } // sin consultationId → cuenta de mostrador ('counter')
@@ -148,11 +166,32 @@ export async function createCounterSale(input: {
     }
   }
 
+  // Línea de ajuste (recargo por crédito o redondeo de efectivo), antes de cobrar.
+  if (surcharge > 0) {
+    await actions.execute('billing.lines.add', {
+      accountId: account.id,
+      productId: null,
+      description: `Recargo por crédito (${creditPct}%)`,
+      quantity: '1',
+      unitPrice: String(surcharge),
+      sourceType: CREDIT_SURCHARGE_SOURCE,
+    });
+  } else if (roundingDelta !== 0) {
+    await actions.execute('billing.lines.add', {
+      accountId: account.id,
+      productId: null,
+      description: 'Redondeo de efectivo',
+      quantity: '1',
+      unitPrice: String(roundingDelta),
+      sourceType: 'rounding',
+    });
+  }
+
   // Cobro en el acto: la venta de mostrador se paga al instante → entra a la Caja del día.
-  if (total > 0) {
+  if (finalTotal > 0) {
     await actions.execute('billing.payments.record', {
       accountId: account.id,
-      amount: String(total),
+      amount: String(finalTotal),
       method: input.method,
     });
   }

@@ -1,12 +1,13 @@
 import { getHostReact, getHostUI, actions } from '@coongro/plugin-sdk';
 
 const UI = getHostUI();
+import { METHOD_LABEL, LINE_SOURCE_LABEL, ACCOUNT_SOURCE_LABEL } from '../constants.js';
 import {
-  PAYMENT_METHODS,
-  METHOD_LABEL,
-  LINE_SOURCE_LABEL,
-  ACCOUNT_SOURCE_LABEL,
-} from '../constants.js';
+  useBillingSettings,
+  enabledMethods,
+  creditSurcharge,
+  CREDIT_SURCHARGE_SOURCE,
+} from '../settings/derive.js';
 import { formatMoney, formatDate } from '../utils/money.js';
 import { toast } from '../utils/toast.js';
 
@@ -78,6 +79,8 @@ const LINE_ICON: Record<string, string> = {
   service: 'PawPrint',
   vaccine: 'Syringe',
   product: 'Package',
+  surcharge: 'Percent',
+  rounding: 'Coins',
 };
 // Medio de pago → icono.
 const MEDIO_ICON: Record<string, string> = {
@@ -130,6 +133,7 @@ export function AccountDetailDrawer({
   const [showPay, setShowPay] = useState(false);
   const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState('efectivo');
+  const { settings: cfg } = useBillingSettings();
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -181,14 +185,37 @@ export function AccountDetailDrawer({
   }, [detail]);
 
   const registerPayment = useCallback(async () => {
-    if (!accountId) return;
-    const amt = Number(payAmount);
+    if (!accountId || !detail) return;
+    const bal = Math.max(0, Number(detail.balance));
+    const pct = cfg.paymentsCreditSurcharge;
+    // Recargo por crédito: se cobra el saldo + recargo (pago total) y se registra como línea.
+    const surchargeAmt = payMethod === 'credito' ? creditSurcharge(bal, pct) : 0;
+    const amt = surchargeAmt > 0 ? bal + surchargeAmt : Number(payAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
       toast('Monto inválido', 'Ingresá un monto mayor a 0.', 'info');
       return;
     }
+    // Fiado deshabilitado: exigir saldar el total (no dejar saldo pendiente).
+    if (!cfg.paymentsOnAccount && surchargeAmt === 0 && amt < bal - 0.005) {
+      toast(
+        'Cobrá el total',
+        'Esta clínica no maneja ventas a cuenta: cobrá el saldo completo.',
+        'info'
+      );
+      return;
+    }
     setBusy(true);
     try {
+      if (surchargeAmt > 0) {
+        await actions.execute('billing.lines.add', {
+          accountId,
+          productId: null,
+          description: `Recargo por crédito (${pct}%)`,
+          quantity: '1',
+          unitPrice: String(surchargeAmt),
+          sourceType: CREDIT_SURCHARGE_SOURCE,
+        });
+      }
       await actions.execute('billing.payments.record', {
         accountId,
         amount: String(amt),
@@ -203,7 +230,7 @@ export function AccountDetailDrawer({
     } finally {
       setBusy(false);
     }
-  }, [accountId, payAmount, payMethod, load, onChanged]);
+  }, [accountId, detail, payAmount, payMethod, cfg, load, onChanged]);
 
   const removePayment = useCallback(
     async (paymentId: string) => {
@@ -226,6 +253,16 @@ export function AccountDetailDrawer({
   const balanceNum = Number(detail?.balance ?? 0);
   const hasBalance = balanceNum > 0.005;
   const isPaid = detail?.paymentStatus === 'paid';
+
+  // Medios ofrecidos + recargo por crédito + regla de fiado (settings de billing).
+  const methods = enabledMethods(cfg);
+  const surchargeAmt =
+    payMethod === 'credito' ? creditSurcharge(balanceNum, cfg.paymentsCreditSurcharge) : 0;
+  const creditMode = surchargeAmt > 0; // crédito con recargo → pago total del saldo + recargo
+  const totalWithSurcharge = balanceNum + surchargeAmt;
+  const allowPartial = cfg.paymentsOnAccount;
+  const effectiveAmount = creditMode ? totalWithSurcharge : payAmount;
+  const payTooLow = !allowPartial && !creditMode && payAmount < Math.round(balanceNum);
 
   const tint = tintFor(petName || clientName || '?');
   const initial = (petName || clientName || '?').trim().charAt(0).toUpperCase();
@@ -581,19 +618,25 @@ export function AccountDetailDrawer({
         '$'
       ),
       h('input', {
-        value: payAmount ? payAmount.toLocaleString('es-AR') : '',
+        value: creditMode
+          ? totalWithSurcharge.toLocaleString('es-AR')
+          : payAmount
+            ? payAmount.toLocaleString('es-AR')
+            : '',
         inputMode: 'numeric',
         placeholder: '0',
+        readOnly: creditMode,
         onChange: (e: any) => {
+          if (creditMode) return; // en modo crédito el monto lo fija el recargo
           const digits = String(e.target.value).replace(/[^\d]/g, '');
           setPayAmount(digits ? parseInt(digits, 10) : 0);
         },
         style: {
           width: '100%',
           padding: '10px 12px 10px 26px',
-          border: `0.5px solid ${payAmount > balanceNum ? PAL.red.deep : N[300]}`,
+          border: `0.5px solid ${!creditMode && payAmount > balanceNum ? PAL.red.deep : N[300]}`,
           borderRadius: '9px',
-          background: N.white,
+          background: creditMode ? N[100] : N.white,
           color: N[950],
           fontSize: '16px',
           fontFamily: MONO,
@@ -601,33 +644,64 @@ export function AccountDetailDrawer({
         },
       } as any)
     ),
-    h(
-      'div',
-      { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' } },
-      quickBtn('Saldo completo', payAmount === Math.round(balanceNum), () =>
-        setPayAmount(Math.round(balanceNum))
-      ),
-      quickBtn('Mitad', payAmount === Math.round(balanceNum / 2), () =>
-        setPayAmount(Math.round(balanceNum / 2))
-      ),
-      h(
-        'span',
-        {
-          style: {
-            marginLeft: 'auto',
-            fontSize: '11.5px',
-            color: payAmount > balanceNum ? PAL.red.deep : N[500],
+    creditMode
+      ? h(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              marginTop: '10px',
+              fontSize: '12px',
+              color: N[700],
+            },
           },
-        },
-        payAmount > balanceNum ? 'Supera el saldo' : `Saldo ${formatMoney(balanceNum)}`
-      )
-    ),
+          h(
+            'span',
+            null,
+            `Saldo ${formatMoney(balanceNum)} + recargo ${cfg.paymentsCreditSurcharge}% (${formatMoney(surchargeAmt)})`
+          ),
+          h(
+            'span',
+            { style: { fontWeight: 700, color: N[950] } },
+            `Total ${formatMoney(totalWithSurcharge)}`
+          )
+        )
+      : h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' } },
+          quickBtn('Saldo completo', payAmount === Math.round(balanceNum), () =>
+            setPayAmount(Math.round(balanceNum))
+          ),
+          allowPartial
+            ? quickBtn('Mitad', payAmount === Math.round(balanceNum / 2), () =>
+                setPayAmount(Math.round(balanceNum / 2))
+              )
+            : null,
+          h(
+            'span',
+            {
+              style: {
+                marginLeft: 'auto',
+                fontSize: '11.5px',
+                color: payAmount > balanceNum || payTooLow ? PAL.red.deep : N[500],
+              },
+            },
+            payAmount > balanceNum
+              ? 'Supera el saldo'
+              : payTooLow
+                ? 'Cobrá el total'
+                : `Saldo ${formatMoney(balanceNum)}`
+          )
+        ),
     // Medios
     h('label', { style: { ...SECTION_LABEL, display: 'block', margin: '16px 0 7px' } }, 'Con qué'),
     h(
       'div',
       { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' } },
-      ...PAYMENT_METHODS.map((m) => {
+      ...methods.map((m) => {
         const sel = payMethod === m.value;
         return h(
           'button',
@@ -676,12 +750,12 @@ export function AccountDetailDrawer({
         UI.Button,
         {
           variant: 'brand',
-          disabled: busy || !(payAmount > 0),
+          disabled: busy || !(effectiveAmount > 0) || payTooLow,
           onClick: () => void registerPayment(),
           style: { flex: 1.5 },
         } as any,
         h(UI.DynamicIcon, { icon: 'Check', size: 15, className: 'mr-1' } as any),
-        payAmount > 0 ? `Cobrar ${formatMoney(payAmount)}` : 'Cobrar'
+        effectiveAmount > 0 ? `Cobrar ${formatMoney(effectiveAmount)}` : 'Cobrar'
       )
     )
   );

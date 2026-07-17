@@ -1,12 +1,18 @@
 import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
-import { PAYMENT_METHODS, METHOD_LABEL } from '../constants.js';
+import { METHOD_LABEL } from '../constants.js';
 import { createCounterSale } from '../data/createCounterSale.js';
 import { lotesFEFO, loteRecomendado, repartir } from '../data/loteUtils.js';
 import { useContacts } from '../data/useContacts.js';
 import type { ContactOption } from '../data/useContacts.js';
 import { useSaleCatalog } from '../data/useSaleCatalog.js';
 import type { SaleGroup, SaleProduct, ProductBucket } from '../data/useSaleCatalog.js';
+import {
+  useBillingSettings,
+  enabledMethods,
+  roundCash,
+  creditSurcharge,
+} from '../settings/derive.js';
 import { formatMoney } from '../utils/money.js';
 import { toast } from '../utils/toast.js';
 
@@ -280,6 +286,7 @@ interface CounterSaleDialogProps {
 export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDialogProps) {
   const groups = useSaleCatalog();
   const contacts = useContacts();
+  const { settings: cfg } = useBillingSettings();
   const [cliente, setCliente] = useState<ContactOption | null>(null);
   const [method, setMethod] = useState('efectivo');
   const [items, setItems] = useState<LineState[]>([]);
@@ -332,6 +339,28 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
   const valid = items.length > 0 && !haySinStock && total > 0;
   const caja = MEDIO_CAJA[method] ?? { caja: false, nota: '' };
 
+  // Medios ofrecidos + ajuste del total según el medio (recargo por crédito / redondeo efectivo).
+  const methods = enabledMethods(cfg);
+  const methodEnabled =
+    method === 'efectivo' ||
+    (method === 'transferencia' && cfg.paymentsTransferencia) ||
+    (method === 'debito' && cfg.paymentsDebito) ||
+    (method === 'credito' && cfg.paymentsCredito);
+  useEffect(() => {
+    // Si el medio elegido se deshabilitó en settings, volver a efectivo (siempre disponible).
+    if (!methodEnabled) setMethod('efectivo');
+  }, [methodEnabled]);
+  const surcharge = method === 'credito' ? creditSurcharge(total, cfg.paymentsCreditSurcharge) : 0;
+  const roundingDelta =
+    method === 'efectivo' && surcharge === 0 ? roundCash(total, cfg.cashRounding) - total : 0;
+  const finalTotal = total + surcharge + roundingDelta;
+  const adjustNote =
+    surcharge > 0
+      ? `Incluye recargo por crédito (${cfg.paymentsCreditSurcharge}%): +${formatMoney(surcharge)}`
+      : roundingDelta !== 0
+        ? `Redondeo de efectivo: ${roundingDelta > 0 ? '+' : '−'}${formatMoney(Math.abs(roundingDelta))}`
+        : null;
+
   const save = async () => {
     if (!valid) return;
     setBusy(true);
@@ -357,7 +386,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
       });
       toast(
         'Venta cobrada',
-        `${formatMoney(total)} · ${METHOD_LABEL[method] ?? method}`,
+        `${formatMoney(finalTotal)} · ${METHOD_LABEL[method] ?? method}`,
         'success'
       );
       onOpenChange(false);
@@ -606,7 +635,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
               h(
                 'div',
                 { className: 'cr-medios' },
-                ...PAYMENT_METHODS.map((m) =>
+                ...methods.map((m) =>
                   h(
                     'button',
                     {
@@ -642,8 +671,20 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
                 )
               : null
           ),
-          h('span', { className: `cr-foot-amt ${haySinStock ? 'danger' : ''}` }, formatMoney(total))
+          h(
+            'span',
+            { className: `cr-foot-amt ${haySinStock ? 'danger' : ''}` },
+            formatMoney(finalTotal)
+          )
         ),
+        adjustNote && !haySinStock
+          ? h(
+              'div',
+              { className: 'cr-foot-destino' },
+              ic('Percent', 13),
+              h('span', null, adjustNote)
+            )
+          : null,
         items.length > 0
           ? haySinStock
             ? h(
@@ -684,7 +725,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
               style: { flex: 1 },
             } as any,
             ic('Check', 15),
-            valid ? ` Confirmar cobro · ${formatMoney(total)}` : ' Confirmar cobro'
+            valid ? ` Confirmar cobro · ${formatMoney(finalTotal)}` : ' Confirmar cobro'
           )
         )
       )
