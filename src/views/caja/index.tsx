@@ -13,6 +13,7 @@ import { PAYMENT_METHOD_GROUPS, METHOD_LABEL, ACCOUNT_SOURCE_LABEL } from '../..
 import { useCaja } from '../../data/useCaja.js';
 import type { CajaPayment } from '../../data/useCaja.js';
 import { useCashClose } from '../../data/useCashClose.js';
+import { useBillingSettings } from '../../settings/derive.js';
 import { localDayKey, addDays, hhmm } from '../../utils/day.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
 import { useMinWidth, gridCols } from '../../utils/responsive.js';
@@ -171,6 +172,8 @@ export function CajaView() {
 
   const { rows: payRows, loading, error, reload } = useCaja(apiRange);
   const { close, reload: reloadClose } = useCashClose(selectedDay);
+  const { close: yesterdayClose } = useCashClose(yesterdayKey);
+  const { settings: cfg } = useBillingSettings();
 
   // Pagos del día, separados por dirección de la cuenta: cobros (receivable) vs egresos
   // (payable). Los egresos ahora se cargan en Salidas/Movimientos; Caja solo los REFLEJA.
@@ -208,6 +211,16 @@ export function CajaView() {
   const isYesterday = selectedDay === yesterdayKey;
   const dayLabel = isToday ? 'Hoy' : isYesterday ? 'Ayer' : formatDate(selectedDay);
   const dayWord = isToday ? 'hoy' : isYesterday ? 'ayer' : `del ${formatDate(selectedDay)}`;
+
+  // Arqueo pendiente: si se exige el cierre diario y ayer tuvo efectivo sin cerrar, avisar.
+  const yesterdayHadCash = useMemo(
+    () =>
+      payRows.some(
+        (r) => localDayKey(new Date(r.paidAt)) === yesterdayKey && r.method === 'efectivo'
+      ),
+    [payRows, yesterdayKey]
+  );
+  const needsClose = cfg.cashRequireClose && isToday && !yesterdayClose && yesterdayHadCash;
 
   // ── Header + selector de fecha ──
   const header = h(
@@ -533,6 +546,39 @@ export function CajaView() {
         style: { maxWidth: 1080, margin: '0 auto' },
       },
       header,
+      needsClose
+        ? h(
+            'div',
+            {
+              className:
+                'flex items-center gap-3 p-4 rounded-xl border border-cg-gold-lt bg-cg-gold-soft',
+            },
+            h(UI.DynamicIcon, {
+              icon: 'TriangleAlert',
+              size: 18,
+              className: 'text-cg-gold-deep flex-shrink-0',
+            }),
+            h(
+              'div',
+              { className: 'flex-1 min-w-0' },
+              h(
+                'div',
+                { className: 'text-sm font-medium text-cg-text' },
+                'Tenés la caja de ayer sin cerrar'
+              ),
+              h(
+                'div',
+                { className: 'text-xs text-cg-gold-deep' },
+                'Hacé el arqueo de ayer para llevar el control diario del efectivo.'
+              )
+            ),
+            h(
+              UI.Button,
+              { variant: 'outline', size: 'sm', onClick: () => setSelectedDay(yesterdayKey) },
+              'Ver ayer'
+            )
+          )
+        : null,
       tiles,
 
       h(
