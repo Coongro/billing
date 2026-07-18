@@ -110,6 +110,7 @@ export function CashCloseSection({
   const [counted, setCounted] = useState('');
   const [withdraw, setWithdraw] = useState('');
   const [busy, setBusy] = useState(false);
+  const [redoOpen, setRedoOpen] = useState(false);
   const [defaultFloat, setDefaultFloat] = useState('0');
   const { prevFloat } = usePrevFloat(businessDay);
 
@@ -171,14 +172,8 @@ export function CashCloseSection({
 
   const headerExpected = showSnapshot ? snapExpected : liveExpected;
 
-  const startRedo = () => {
-    if (!existingClose) return;
-    const ok = window.confirm(
-      `Vas a rehacer el cierre de las ${hhmm(existingClose.closedAt)} ` +
-        `(esperado ${formatMoney(snapExpected)}, contado ${formatMoney(snapCounted)}). ` +
-        'El cierre anterior se pisa y no queda registro. ¿Continuar?'
-    );
-    if (!ok) return;
+  const confirmRedo = () => {
+    setRedoOpen(false);
     setOpeningFloat(String(Math.round(snapOpening)));
     setCounted('');
     setWithdraw('');
@@ -382,12 +377,42 @@ export function CashCloseSection({
       { className: 'flex justify-end mt-4' },
       h(
         UI.Button,
-        { variant: 'outline', size: 'sm', onClick: startRedo, className: 'gap-1.5' },
+        { variant: 'outline', size: 'sm', onClick: () => setRedoOpen(true), className: 'gap-1.5' },
         h(UI.DynamicIcon, { icon: 'RotateCcw', size: 13 }),
         'Rehacer cierre'
       )
     )
   );
+
+  // Confirmación de re-cierre con el dialog del core (no window.confirm).
+  const redoDialog = existingClose
+    ? h(UI.ConfirmDialog, {
+        open: redoOpen,
+        onOpenChange: setRedoOpen,
+        title: 'Rehacer el cierre de caja',
+        description: h(
+          'span',
+          null,
+          'Vas a rehacer el cierre de las ',
+          h('strong', { className: 'font-medium' }, hhmm(existingClose.closedAt)),
+          ' (esperado ',
+          h(
+            'strong',
+            { className: 'font-medium', style: { fontVariantNumeric: 'tabular-nums' } },
+            formatMoney(snapExpected)
+          ),
+          ', contado ',
+          h(
+            'strong',
+            { className: 'font-medium', style: { fontVariantNumeric: 'tabular-nums' } },
+            formatMoney(snapCounted)
+          ),
+          '). El cierre anterior se pisa y no queda registro.'
+        ),
+        confirmLabel: 'Rehacer cierre',
+        onConfirm: confirmRedo,
+      })
+    : null;
 
   // ── Cuerpo: día SIN efectivo → cierre de un click ──
   const quickBody = h(
@@ -596,6 +621,7 @@ export function CashCloseSection({
       }`,
     },
     head,
-    body
+    body,
+    redoDialog
   );
 }

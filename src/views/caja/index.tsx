@@ -590,10 +590,7 @@ export function CajaView() {
     { className: 'font-sans min-h-screen bg-cg-bg-secondary p-6' },
     h(
       'div',
-      {
-        className: 'flex flex-col gap-6',
-        style: { maxWidth: 1080, margin: '0 auto' },
-      },
+      { className: 'flex flex-col gap-6' },
       header,
       needsClose
         ? h(
