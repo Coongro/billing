@@ -1,5 +1,7 @@
 /**
  * Caja diaria (COONG-211) — arqueo del día: cobrado − egresos = neto.
+ * COONG-249: el neto resta TODOS los egresos (no solo efectivo) para que el mismo
+ * universo esté en ambos lados de la resta; el arqueo sigue siendo solo-efectivo.
  * Rediseño 2026-06 según diseño aprobado: header + selector de fecha, tiles de
  * resumen, cobrado por disponibilidad, tabla de cobros, egresos y cierre.
  * Reutiliza los hooks de datos reales (useCaja/useCashClose) +
@@ -182,13 +184,21 @@ export function CajaView() {
     [payRows, selectedDay]
   );
   const dayPayments = useMemo(
-    () => dayPaymentsRaw.filter((r) => r.direction !== 'payable'),
+    () =>
+      dayPaymentsRaw
+        .filter((r) => r.direction !== 'payable')
+        .sort((a, b) => a.paidAt.localeCompare(b.paidAt)),
     [dayPaymentsRaw]
   );
-  // Egresos que tocan el cajón = salidas (payable) pagadas en EFECTIVO en el día.
-  const daySalidasEfectivo = useMemo(
-    () => dayPaymentsRaw.filter((r) => r.direction === 'payable' && r.method === 'efectivo'),
+  // Salidas (payable) del día, TODOS los medios: un retiro por transferencia también es
+  // plata que salió. El arqueo usa solo las de efectivo (únicas que tocan el cajón).
+  const daySalidas = useMemo(
+    () => dayPaymentsRaw.filter((r) => r.direction === 'payable'),
     [dayPaymentsRaw]
+  );
+  const daySalidasEfectivo = useMemo(
+    () => daySalidas.filter((r) => r.method === 'efectivo'),
+    [daySalidas]
   );
 
   const total = useMemo(
@@ -200,11 +210,16 @@ export function CajaView() {
     for (const r of dayPayments) m[r.method] = (m[r.method] ?? 0) + Number(r.amount || 0);
     return m;
   }, [dayPayments]);
+  const egresosTotal = useMemo(
+    () => daySalidas.reduce((s, r) => s + Number(r.amount || 0), 0),
+    [daySalidas]
+  );
   const egresosEfectivo = useMemo(
     () => daySalidasEfectivo.reduce((s, r) => s + Number(r.amount || 0), 0),
     [daySalidasEfectivo]
   );
-  const neto = total - egresosEfectivo;
+  const egresosDigital = egresosTotal - egresosEfectivo;
+  const neto = total - egresosTotal;
   const digitalCobrado = total - (byMethod['efectivo'] ?? 0);
 
   const isToday = selectedDay === todayKey;
@@ -294,8 +309,11 @@ export function CajaView() {
       icon: 'ArrowUpFromLine',
       iconCls: 'bg-cg-bg-hover text-cg-text-secondary border border-cg-border',
       label: 'Egresos',
-      value: egresosEfectivo > 0 ? `− ${formatMoney(egresosEfectivo)}` : formatMoney(0),
-      sub: `${daySalidasEfectivo.length} en efectivo · desde Movimientos`,
+      value: egresosTotal > 0 ? `− ${formatMoney(egresosTotal)}` : formatMoney(0),
+      sub:
+        egresosDigital > 0
+          ? `${formatMoney(egresosEfectivo)} efectivo · ${formatMoney(egresosDigital)} digital · desde Salidas`
+          : `${daySalidasEfectivo.length} en efectivo · desde Salidas`,
     }),
     tile({
       icon: 'Wallet',
