@@ -48,9 +48,41 @@ function moneyInput(value: string, onChange: (v: string) => void, placeholder?: 
   );
 }
 
+/** Chip de diferencia (falta/sobra/exacta), reutilizado por el modo cerrado y el editable. */
+function diffChipNode(difference: number) {
+  const short = difference < -EPSILON;
+  const over = difference > EPSILON;
+  return h(
+    'span',
+    {
+      className: `ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium ${
+        short
+          ? 'bg-cg-red-soft text-cg-red-deep'
+          : over
+            ? 'bg-cg-gold-soft text-cg-gold-deep'
+            : 'bg-cg-success-bg text-cg-success'
+      }`,
+      style: { fontVariantNumeric: 'tabular-nums' },
+    },
+    h(UI.DynamicIcon, {
+      icon: short ? 'ArrowUpFromLine' : over ? 'ArrowDownToLine' : 'Check',
+      size: 13,
+    }),
+    short
+      ? `Falta ${formatMoney(Math.abs(difference))}`
+      : over
+        ? `Sobra ${formatMoney(difference)}`
+        : 'Caja exacta'
+  );
+}
+
 /**
- * Cierre de caja (arqueo del efectivo): panel SECUNDARIO plegable. fondo + efectivo − egresos
- * = esperado, contra lo contado. Solo cuenta efectivo (lo digital va al banco).
+ * Cierre de caja (arqueo del efectivo): panel SECUNDARIO plegable.
+ *
+ * COONG-249 — el cierre es un snapshot con autoridad: un día cerrado muestra lo GUARDADO
+ * (fondo/esperado/contado/diferencia), no un recálculo en vivo. Si después del cierre
+ * entraron movimientos de efectivo, se avisa explícitamente en lugar de contradecir el
+ * chip "Cerrada". Re-cerrar pide confirmación (pisa el snapshot anterior).
  */
 export function CashCloseSection({
   businessDay,
@@ -61,6 +93,7 @@ export function CashCloseSection({
   reload,
 }: CashCloseSectionProps) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [openingFloat, setOpeningFloat] = useState('0');
   const [counted, setCounted] = useState('');
   const [busy, setBusy] = useState(false);
@@ -82,19 +115,44 @@ export function CashCloseSection({
   }, []);
 
   useEffect(() => {
+    setEditing(false);
     setOpeningFloat(
       existingClose ? String(Math.round(Number(existingClose.openingFloat) || 0)) : defaultFloat
     );
-    setCounted(existingClose ? String(Math.round(Number(existingClose.countedCash) || 0)) : '');
+    setCounted('');
   }, [existingClose, businessDay, defaultFloat]);
 
+  // Snapshot guardado (verdad del cierre) vs números en vivo (para el modo editable).
+  const snapOpening = existingClose ? Number(existingClose.openingFloat) || 0 : 0;
+  const snapExpected = existingClose ? Number(existingClose.expectedCash) || 0 : 0;
+  const snapCounted = existingClose ? Number(existingClose.countedCash) || 0 : 0;
+  const snapDiff = existingClose ? Number(existingClose.difference) || 0 : 0;
+
   const floatNum = digits(openingFloat);
-  const expected = floatNum + efectivoCobrado - egresos;
+  const liveExpected = floatNum + efectivoCobrado - egresos;
   const hasCounted = counted.trim() !== '';
   const countedNum = digits(counted);
-  const difference = hasCounted ? countedNum - expected : 0;
-  const diffIsShort = difference < -EPSILON;
-  const diffIsOver = difference > EPSILON;
+  const difference = hasCounted ? countedNum - liveExpected : 0;
+
+  const showSnapshot = !!existingClose && !editing;
+  // Drift: con el fondo del cierre, ¿el esperado de hoy sigue siendo el del snapshot?
+  const driftExpected = snapOpening + efectivoCobrado - egresos;
+  const hasDrift = !!existingClose && Math.abs(driftExpected - snapExpected) > EPSILON;
+
+  const headerExpected = showSnapshot ? snapExpected : liveExpected;
+
+  const startRedo = () => {
+    if (!existingClose) return;
+    const ok = window.confirm(
+      `Vas a rehacer el cierre de las ${hhmm(existingClose.closedAt)} ` +
+        `(esperado ${formatMoney(snapExpected)}, contado ${formatMoney(snapCounted)}). ` +
+        'El cierre anterior se pisa y no queda registro. ¿Continuar?'
+    );
+    if (!ok) return;
+    setOpeningFloat(String(Math.round(snapOpening)));
+    setCounted('');
+    setEditing(true);
+  };
 
   const save = async () => {
     if (!hasCounted) {
@@ -106,15 +164,16 @@ export function CashCloseSection({
       await actions.execute('billing.cashCloses.record', {
         businessDay,
         openingFloat: String(floatNum),
-        expectedCash: String(expected),
+        expectedCash: String(liveExpected),
         countedCash: String(countedNum),
         difference: String(difference),
       });
       toast(
         'Caja cerrada',
-        existingClose ? 'Cierre actualizado.' : 'Se guardó el cierre del día.',
+        existingClose ? 'Se guardó el nuevo cierre del día.' : 'Se guardó el cierre del día.',
         'success'
       );
+      setEditing(false);
       await reload();
     } catch {
       toast('No se pudo cerrar', 'Intentá de nuevo.', 'info');
@@ -139,6 +198,13 @@ export function CashCloseSection({
         opts.hint ? h('span', { className: 'text-[11px] text-cg-text-muted' }, opts.hint) : null
       ),
       h('div', { className: 'ml-auto' }, valueNode as never)
+    );
+
+  const money = (n: number, cls = 'text-cg-text') =>
+    h(
+      'span',
+      { className: `text-[15px] ${cls}`, style: { fontVariantNumeric: 'tabular-nums' } },
+      formatMoney(n)
     );
 
   const sep = h('div', { className: 'border-t border-cg-border my-1' });
@@ -173,7 +239,7 @@ export function CashCloseSection({
       h(
         'span',
         { className: 'text-[10.5px] font-medium uppercase tracking-[0.06em] text-cg-text-muted' },
-        'Esperado'
+        showSnapshot ? 'Esperado al cierre' : 'Esperado'
       ),
       h(
         'span',
@@ -181,7 +247,7 @@ export function CashCloseSection({
           className: 'text-base font-medium text-cg-text',
           style: { fontVariantNumeric: 'tabular-nums' },
         },
-        formatMoney(expected)
+        formatMoney(headerExpected)
       )
     ),
     existingClose
@@ -202,128 +268,164 @@ export function CashCloseSection({
     })
   );
 
-  // ── Cuerpo del arqueo ──
-  const diffChip = !hasCounted
-    ? h('span', { className: 'ml-auto text-[12.5px] text-cg-text-muted' }, 'Ingresá lo contado')
-    : h(
-        'span',
-        {
-          className: `ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium ${
-            diffIsShort
-              ? 'bg-cg-red-soft text-cg-red-deep'
-              : diffIsOver
-                ? 'bg-cg-gold-soft text-cg-gold-deep'
-                : 'bg-cg-success-bg text-cg-success'
-          }`,
-          style: { fontVariantNumeric: 'tabular-nums' },
-        },
-        h(UI.DynamicIcon, {
-          icon: diffIsShort ? 'ArrowUpFromLine' : diffIsOver ? 'ArrowDownToLine' : 'Check',
-          size: 13,
-        }),
-        diffIsShort
-          ? `Falta ${formatMoney(Math.abs(difference))}`
-          : diffIsOver
-            ? `Sobra ${formatMoney(difference)}`
-            : 'Caja exacta'
-      );
-
-  const body = open
+  // Aviso de movimientos posteriores al cierre (en vez de recalcular en silencio).
+  const driftNote = hasDrift
     ? h(
         'div',
-        { className: 'px-5 pb-5 pt-1 border-t border-cg-border' },
-        arqRow('Fondo inicial', moneyInput(openingFloat, setOpeningFloat), {
-          hint: 'con qué empezó la caja',
-        }),
-        arqRow(
-          'Efectivo cobrado',
+        {
+          className:
+            'flex items-start gap-2 mt-3 px-3.5 py-3 rounded-lg bg-cg-gold-soft border border-cg-gold-lt text-[12.5px] text-cg-gold-deep leading-snug',
+        },
+        h(UI.DynamicIcon, { icon: 'TriangleAlert', size: 14, className: 'flex-shrink-0 mt-0.5' }),
+        h(
+          'span',
+          null,
+          'Hubo movimientos de efectivo después de este cierre: con los números de ahora el esperado sería ',
           h(
-            'span',
-            {
-              className: 'text-[15px] text-cg-success',
-              style: { fontVariantNumeric: 'tabular-nums' },
-            },
-            `+ ${formatMoney(efectivoCobrado)}`
-          )
-        ),
-        arqRow(
-          'Egresos',
-          h(
-            'span',
-            {
-              className: 'text-[15px] text-cg-text-secondary',
-              style: { fontVariantNumeric: 'tabular-nums' },
-            },
-            `− ${formatMoney(egresos)}`
-          )
-        ),
-        sep,
-        arqRow(
-          'Esperado en caja',
-          h(
-            'span',
-            {
-              className: `${SERIF} text-2xl text-cg-text leading-none`,
-              style: { fontVariantNumeric: 'tabular-nums' },
-            },
-            formatMoney(expected)
+            'strong',
+            { className: 'font-medium', style: { fontVariantNumeric: 'tabular-nums' } },
+            formatMoney(driftExpected)
           ),
-          { total: true }
-        ),
-        arqRow('Contado', moneyInput(counted, setCounted, '—'), {
-          hint: 'lo que contás en el cajón',
-        }),
-        sep,
-        h(
-          'div',
-          { className: 'flex items-center gap-3.5 py-2.5' },
-          h('span', { className: 'text-sm font-medium text-cg-text' }, 'Diferencia'),
-          diffChip
-        ),
-        // Nota: lo digital no entra al arqueo
-        h(
-          'div',
-          {
-            className:
-              'flex items-start gap-2 mt-3 px-3.5 py-3 rounded-lg bg-cg-bg-hover border border-cg-border text-[12.5px] text-cg-text-secondary leading-snug',
-          },
-          h(UI.DynamicIcon, {
-            icon: 'Info',
-            size: 14,
-            className: 'text-cg-text-muted flex-shrink-0 mt-0.5',
-          }),
-          h(
-            'span',
-            null,
-            'Digital del día (no entra al arqueo, va al banco): ',
-            h(
-              'strong',
-              {
-                className: 'font-medium text-cg-text',
-                style: { fontVariantNumeric: 'tabular-nums' },
-              },
-              formatMoney(digitalCobrado)
-            )
-          )
-        ),
-        h(
-          'div',
-          { className: 'flex justify-end mt-4' },
-          h(
-            UI.Button,
-            {
-              variant: 'brand',
-              size: 'sm',
-              disabled: busy,
-              onClick: () => void save(),
-              className: 'gap-1.5',
-            },
-            h(UI.DynamicIcon, { icon: 'Lock', size: 13 }),
-            existingClose ? 'Actualizar cierre' : 'Cerrar caja'
-          )
+          '. Si corresponde, rehacé el cierre.'
         )
       )
     : null;
+
+  // ── Cuerpo: día CERRADO → snapshot de solo lectura ──
+  const closedBody = h(
+    'div',
+    { className: 'px-5 pb-5 pt-1 border-t border-cg-border' },
+    arqRow('Fondo inicial', money(snapOpening), { hint: 'con qué empezó la caja' }),
+    arqRow('Esperado al cierre', money(snapExpected)),
+    arqRow('Contado', money(snapCounted), { hint: 'lo que se contó en el cajón' }),
+    sep,
+    h(
+      'div',
+      { className: 'flex items-center gap-3.5 py-2.5' },
+      h('span', { className: 'text-sm font-medium text-cg-text' }, 'Diferencia'),
+      diffChipNode(snapDiff)
+    ),
+    driftNote,
+    h(
+      'div',
+      { className: 'flex justify-end mt-4' },
+      h(
+        UI.Button,
+        { variant: 'outline', size: 'sm', onClick: startRedo, className: 'gap-1.5' },
+        h(UI.DynamicIcon, { icon: 'RotateCcw', size: 13 }),
+        'Rehacer cierre'
+      )
+    )
+  );
+
+  // ── Cuerpo: día abierto (o rehaciendo) → formulario editable ──
+  const editDiffChip = !hasCounted
+    ? h('span', { className: 'ml-auto text-[12.5px] text-cg-text-muted' }, 'Ingresá lo contado')
+    : diffChipNode(difference);
+
+  const editBody = h(
+    'div',
+    { className: 'px-5 pb-5 pt-1 border-t border-cg-border' },
+    arqRow('Fondo inicial', moneyInput(openingFloat, setOpeningFloat), {
+      hint: 'con qué empezó la caja',
+    }),
+    arqRow(
+      'Efectivo cobrado',
+      h(
+        'span',
+        {
+          className: 'text-[15px] text-cg-success',
+          style: { fontVariantNumeric: 'tabular-nums' },
+        },
+        `+ ${formatMoney(efectivoCobrado)}`
+      )
+    ),
+    arqRow(
+      'Egresos en efectivo',
+      h(
+        'span',
+        {
+          className: 'text-[15px] text-cg-text-secondary',
+          style: { fontVariantNumeric: 'tabular-nums' },
+        },
+        `− ${formatMoney(egresos)}`
+      )
+    ),
+    sep,
+    arqRow(
+      'Esperado en caja',
+      h(
+        'span',
+        {
+          className: `${SERIF} text-2xl text-cg-text leading-none`,
+          style: { fontVariantNumeric: 'tabular-nums' },
+        },
+        formatMoney(liveExpected)
+      ),
+      { total: true }
+    ),
+    arqRow('Contado', moneyInput(counted, setCounted, '—'), {
+      hint: 'lo que contás en el cajón',
+    }),
+    sep,
+    h(
+      'div',
+      { className: 'flex items-center gap-3.5 py-2.5' },
+      h('span', { className: 'text-sm font-medium text-cg-text' }, 'Diferencia'),
+      editDiffChip
+    ),
+    // Nota: lo digital no entra al arqueo
+    h(
+      'div',
+      {
+        className:
+          'flex items-start gap-2 mt-3 px-3.5 py-3 rounded-lg bg-cg-bg-hover border border-cg-border text-[12.5px] text-cg-text-secondary leading-snug',
+      },
+      h(UI.DynamicIcon, {
+        icon: 'Info',
+        size: 14,
+        className: 'text-cg-text-muted flex-shrink-0 mt-0.5',
+      }),
+      h(
+        'span',
+        null,
+        'Digital del día (no entra al arqueo, va al banco): ',
+        h(
+          'strong',
+          {
+            className: 'font-medium text-cg-text',
+            style: { fontVariantNumeric: 'tabular-nums' },
+          },
+          formatMoney(digitalCobrado)
+        )
+      )
+    ),
+    h(
+      'div',
+      { className: 'flex items-center justify-end gap-2 mt-4' },
+      editing
+        ? h(
+            UI.Button,
+            { variant: 'outline', size: 'sm', disabled: busy, onClick: () => setEditing(false) },
+            'Cancelar'
+          )
+        : null,
+      h(
+        UI.Button,
+        {
+          variant: 'brand',
+          size: 'sm',
+          disabled: busy,
+          onClick: () => void save(),
+          className: 'gap-1.5',
+        },
+        h(UI.DynamicIcon, { icon: 'Lock', size: 13 }),
+        existingClose ? 'Guardar nuevo cierre' : 'Cerrar caja'
+      )
+    )
+  );
+
+  const body = open ? (showSnapshot ? closedBody : editBody) : null;
 
   return h(
     'div',

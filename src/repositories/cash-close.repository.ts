@@ -1,5 +1,5 @@
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { cashCloseTable } from '../schema/cash-close.js';
 import type { CashCloseRow, NewCashCloseRow } from '../schema/cash-close.js';
@@ -31,7 +31,8 @@ export class CashCloseRepository {
     const existing = await this.getByDay({ businessDay });
     if (existing) {
       // Cast: drizzle .set() omite columnas con default/notNull (mismo bug pgSchema que en
-      // updates de account.opened_at); el runtime aplica todas las claves del objeto.
+      // updates de account.opened_at). closed_at va como sql`now()` porque el ISO string
+      // se pierde en el update (verificado en COONG-249: el re-cierre no refrescaba la hora).
       const updated = await this.db.ormQuery((tx) =>
         tx
           .update(cashCloseTable)
@@ -41,7 +42,7 @@ export class CashCloseRepository {
             counted_cash: countedCash,
             difference,
             notes,
-            closed_at: new Date().toISOString(),
+            closed_at: sql`now()`,
           } as unknown as Partial<CashCloseRow>)
           .where(eq(cashCloseTable.id, existing.id))
           .returning()
