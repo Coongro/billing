@@ -151,8 +151,14 @@ export function CashCloseSection({
   const snapNextFloat =
     existingClose && existingClose.nextFloat !== null ? Number(existingClose.nextFloat) : null;
 
+  // Egresos del día SIN el retiro automático de este mismo cierre: el retiro ocurre AL
+  // cerrar (después de contar), así que nunca es un egreso previo al arqueo. Al rehacer
+  // un cierre, el retiro anterior se reemplaza — incluirlo acá contaminaba el esperado
+  // y disparaba drift falso (visto en COONG-250 con un re-cierre).
+  const egresosPrevios = Math.max(egresos - snapWithdrawn, 0);
+
   const floatNum = digits(openingFloat);
-  const liveExpected = floatNum + efectivoCobrado - egresos;
+  const liveExpected = floatNum + efectivoCobrado - egresosPrevios;
   const hasCounted = counted.trim() !== '';
   const countedNum = digits(counted);
   const difference = hasCounted ? countedNum - liveExpected : 0;
@@ -161,13 +167,12 @@ export function CashCloseSection({
   const nextFloatNum = Math.max(countedNum - withdrawNum, 0);
 
   const showSnapshot = !!existingClose && !editing;
-  const noCashDay = efectivoCobrado === 0 && egresos === 0;
+  const noCashDay = efectivoCobrado === 0 && egresosPrevios === 0;
   const showQuick = !existingClose && !editing && noCashDay && !forceCount;
 
-  // Drift: ¿el esperado de hoy sigue siendo el del snapshot? El retiro automático del
-  // cierre es un egreso del día que ocurrió AL cerrar — se suma de vuelta para no
-  // auto-acusar drift por la propia Salida que generó el cierre.
-  const driftExpected = snapOpening + efectivoCobrado - egresos + snapWithdrawn;
+  // Drift: ¿el esperado de hoy sigue siendo el del snapshot? Compara contra los egresos
+  // previos al arqueo (sin el retiro del propio cierre).
+  const driftExpected = snapOpening + efectivoCobrado - egresosPrevios;
   const hasDrift = !!existingClose && Math.abs(driftExpected - snapExpected) > EPSILON;
 
   const headerExpected = showSnapshot ? snapExpected : liveExpected;
@@ -510,8 +515,9 @@ export function CashCloseSection({
           className: 'text-[15px] text-cg-text-secondary',
           style: { fontVariantNumeric: 'tabular-nums' },
         },
-        `− ${formatMoney(egresos)}`
-      )
+        `− ${formatMoney(egresosPrevios)}`
+      ),
+      snapWithdrawn > 0 ? { hint: 'sin contar el retiro del cierre anterior' } : {}
     ),
     sep,
     arqRow(
