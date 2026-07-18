@@ -97,7 +97,7 @@
               "key": "billing.cash.openingFloat",
               "type": "number",
               "label": "Fondo inicial de caja",
-              "description": "Efectivo con el que arranca el cajón cada día, para el arqueo. Se pre-rellena al cerrar la caja; podés ajustarlo ahí.",
+              "description": "Efectivo con el que arranca el cajón cuando no hay un cierre anterior. Después del primer cierre, el fondo del día siguiente sale de lo que dejaste al cerrar (\"Dejás de fondo\").",
               "default": 0,
               "min": 0,
               "tags": ["billing", "caja", "fondo", "inicial", "arqueo"]
