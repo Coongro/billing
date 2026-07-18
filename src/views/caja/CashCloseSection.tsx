@@ -2,6 +2,7 @@ import { getHostReact, getHostUI, actions, settings } from '@coongro/plugin-sdk'
 
 const UI = getHostUI();
 import type { CajaClose } from '../../data/useCashClose.js';
+import { usePrevFloat } from '../../data/useCashClose.js';
 import { hhmm } from '../../utils/day.js';
 import { formatMoney } from '../../utils/money.js';
 import { toast } from '../../utils/toast.js';
@@ -19,6 +20,7 @@ interface CashCloseSectionProps {
   egresos: number;
   digitalCobrado: number;
   existingClose: CajaClose | null;
+  /** Refresca cierre + pagos + historial (el retiro automático crea una Salida del día). */
   reload: () => Promise<void>;
 }
 
@@ -27,19 +29,25 @@ function digits(v: string): number {
 }
 
 /** Input de dinero inline ($ prefijo, alineado a la derecha, formato es-AR). */
-function moneyInput(value: string, onChange: (v: string) => void, placeholder?: string) {
+function moneyInput(
+  value: string,
+  onChange: (v: string) => void,
+  opts: { placeholder?: string; disabled?: boolean } = {}
+) {
   const num = digits(value);
   return h(
     'label',
     {
-      className:
-        'relative inline-flex items-center h-9 min-w-[132px] pl-6 pr-3 rounded-md border border-cg-border bg-cg-surface focus-within:border-cg-gold-deep',
+      className: `relative inline-flex items-center h-9 min-w-[132px] pl-6 pr-3 rounded-md border border-cg-border bg-cg-surface focus-within:border-cg-gold-deep ${
+        opts.disabled ? 'opacity-50' : ''
+      }`,
     },
     h('span', { className: 'absolute left-3 text-sm text-cg-text-muted' }, '$'),
     h('input', {
       inputMode: 'numeric',
-      placeholder: placeholder ?? '0',
+      placeholder: opts.placeholder ?? '0',
       value: value === '' ? '' : num.toLocaleString('es-AR'),
+      disabled: opts.disabled ?? false,
       onChange: (e: { target: { value: string } }) => onChange(e.target.value.replace(/\D/g, '')),
       className:
         'border-none outline-none bg-transparent w-full text-right text-[15px] font-medium text-cg-text',
@@ -79,10 +87,13 @@ function diffChipNode(difference: number) {
 /**
  * Cierre de caja (arqueo del efectivo): panel SECUNDARIO plegable.
  *
- * COONG-249 — el cierre es un snapshot con autoridad: un día cerrado muestra lo GUARDADO
- * (fondo/esperado/contado/diferencia), no un recálculo en vivo. Si después del cierre
- * entraron movimientos de efectivo, se avisa explícitamente en lugar de contradecir el
- * chip "Cerrada". Re-cerrar pide confirmación (pisa el snapshot anterior).
+ * COONG-249 — el cierre es un snapshot con autoridad: un día cerrado muestra lo GUARDADO,
+ * no un recálculo en vivo; movimientos posteriores se avisan como drift. Re-cerrar pide
+ * confirmación.
+ *
+ * COONG-250 — el cierre deja la caja lista para mañana: al contar se decide cuánto se
+ * retira (Salida automática) y cuánto queda de fondo (`next_float`), que pre-carga el
+ * fondo inicial del próximo día. Un día sin movimientos de efectivo cierra sin conteo.
  */
 export function CashCloseSection({
   businessDay,
@@ -94,10 +105,14 @@ export function CashCloseSection({
 }: CashCloseSectionProps) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [forceCount, setForceCount] = useState(false);
   const [openingFloat, setOpeningFloat] = useState('0');
   const [counted, setCounted] = useState('');
+  const [withdraw, setWithdraw] = useState('');
   const [busy, setBusy] = useState(false);
+  const [redoOpen, setRedoOpen] = useState(false);
   const [defaultFloat, setDefaultFloat] = useState('0');
+  const { prevFloat } = usePrevFloat(businessDay);
 
   useEffect(() => {
     let active = true;
@@ -114,44 +129,94 @@ export function CashCloseSection({
     };
   }, []);
 
+  // Fondo inicial: el que dejó el cierre anterior; si no hay, el default de settings.
+  const inheritedFloat = prevFloat !== null ? String(Math.round(prevFloat)) : defaultFloat;
+
   useEffect(() => {
     setEditing(false);
+    setForceCount(false);
     setOpeningFloat(
-      existingClose ? String(Math.round(Number(existingClose.openingFloat) || 0)) : defaultFloat
+      existingClose ? String(Math.round(Number(existingClose.openingFloat) || 0)) : inheritedFloat
     );
     setCounted('');
-  }, [existingClose, businessDay, defaultFloat]);
+    setWithdraw('');
+  }, [existingClose, businessDay, inheritedFloat]);
 
   // Snapshot guardado (verdad del cierre) vs números en vivo (para el modo editable).
   const snapOpening = existingClose ? Number(existingClose.openingFloat) || 0 : 0;
   const snapExpected = existingClose ? Number(existingClose.expectedCash) || 0 : 0;
   const snapCounted = existingClose ? Number(existingClose.countedCash) || 0 : 0;
   const snapDiff = existingClose ? Number(existingClose.difference) || 0 : 0;
+  const snapWithdrawn = existingClose ? Number(existingClose.withdrawn) || 0 : 0;
+  const snapNextFloat =
+    existingClose && existingClose.nextFloat !== null ? Number(existingClose.nextFloat) : null;
+
+  // Egresos del día SIN el retiro automático de este mismo cierre: el retiro ocurre AL
+  // cerrar (después de contar), así que nunca es un egreso previo al arqueo. Al rehacer
+  // un cierre, el retiro anterior se reemplaza — incluirlo acá contaminaba el esperado
+  // y disparaba drift falso (visto en COONG-250 con un re-cierre).
+  const egresosPrevios = Math.max(egresos - snapWithdrawn, 0);
 
   const floatNum = digits(openingFloat);
-  const liveExpected = floatNum + efectivoCobrado - egresos;
+  const liveExpected = floatNum + efectivoCobrado - egresosPrevios;
   const hasCounted = counted.trim() !== '';
   const countedNum = digits(counted);
   const difference = hasCounted ? countedNum - liveExpected : 0;
+  // Retiro acotado a lo contado; el fondo de mañana es lo que no se retira.
+  const withdrawNum = Math.min(digits(withdraw), countedNum);
+  const nextFloatNum = Math.max(countedNum - withdrawNum, 0);
 
   const showSnapshot = !!existingClose && !editing;
-  // Drift: con el fondo del cierre, ¿el esperado de hoy sigue siendo el del snapshot?
-  const driftExpected = snapOpening + efectivoCobrado - egresos;
+  const noCashDay = efectivoCobrado === 0 && egresosPrevios === 0;
+  const showQuick = !existingClose && !editing && noCashDay && !forceCount;
+
+  // Drift: ¿el esperado de hoy sigue siendo el del snapshot? Compara contra los egresos
+  // previos al arqueo (sin el retiro del propio cierre).
+  const driftExpected = snapOpening + efectivoCobrado - egresosPrevios;
   const hasDrift = !!existingClose && Math.abs(driftExpected - snapExpected) > EPSILON;
 
   const headerExpected = showSnapshot ? snapExpected : liveExpected;
 
-  const startRedo = () => {
-    if (!existingClose) return;
-    const ok = window.confirm(
-      `Vas a rehacer el cierre de las ${hhmm(existingClose.closedAt)} ` +
-        `(esperado ${formatMoney(snapExpected)}, contado ${formatMoney(snapCounted)}). ` +
-        'El cierre anterior se pisa y no queda registro. ¿Continuar?'
-    );
-    if (!ok) return;
+  const confirmRedo = () => {
+    setRedoOpen(false);
     setOpeningFloat(String(Math.round(snapOpening)));
     setCounted('');
+    setWithdraw('');
     setEditing(true);
+  };
+
+  const persist = async (payload: {
+    countedCash: number;
+    difference: number;
+    withdrawn: number;
+    nextFloat: number;
+  }) => {
+    setBusy(true);
+    try {
+      await actions.execute('billing.cashCloses.record', {
+        businessDay,
+        openingFloat: String(floatNum),
+        expectedCash: String(liveExpected),
+        countedCash: String(payload.countedCash),
+        difference: String(payload.difference),
+        withdrawn: String(payload.withdrawn),
+        nextFloat: String(payload.nextFloat),
+      });
+      toast(
+        'Caja cerrada',
+        payload.withdrawn > 0
+          ? `Retiro de ${formatMoney(payload.withdrawn)} registrado en Salidas. Mañana arranca con ${formatMoney(payload.nextFloat)}.`
+          : `Mañana la caja arranca con ${formatMoney(payload.nextFloat)}.`,
+        'success'
+      );
+      setEditing(false);
+      setForceCount(false);
+      await reload();
+    } catch {
+      toast('No se pudo cerrar', 'Intentá de nuevo.', 'info');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const save = async () => {
@@ -159,27 +224,22 @@ export function CashCloseSection({
       toast('Falta el conteo', 'Ingresá cuánto efectivo contaste.', 'info');
       return;
     }
-    setBusy(true);
-    try {
-      await actions.execute('billing.cashCloses.record', {
-        businessDay,
-        openingFloat: String(floatNum),
-        expectedCash: String(liveExpected),
-        countedCash: String(countedNum),
-        difference: String(difference),
-      });
-      toast(
-        'Caja cerrada',
-        existingClose ? 'Se guardó el nuevo cierre del día.' : 'Se guardó el cierre del día.',
-        'success'
-      );
-      setEditing(false);
-      await reload();
-    } catch {
-      toast('No se pudo cerrar', 'Intentá de nuevo.', 'info');
-    } finally {
-      setBusy(false);
-    }
+    await persist({
+      countedCash: countedNum,
+      difference,
+      withdrawn: withdrawNum,
+      nextFloat: nextFloatNum,
+    });
+  };
+
+  // Día sin movimientos de efectivo: cerrar sin contar (contado = esperado = fondo).
+  const quickSave = async () => {
+    await persist({
+      countedCash: liveExpected,
+      difference: 0,
+      withdrawn: 0,
+      nextFloat: liveExpected,
+    });
   };
 
   // Fila del arqueo: label (+ hint opcional) ... valor.
@@ -305,15 +365,119 @@ export function CashCloseSection({
       h('span', { className: 'text-sm font-medium text-cg-text' }, 'Diferencia'),
       diffChipNode(snapDiff)
     ),
+    snapWithdrawn > 0 || snapNextFloat !== null ? sep : null,
+    snapWithdrawn > 0
+      ? arqRow('Retirado al cierre', money(snapWithdrawn, 'text-cg-text-secondary'), {
+          hint: 'registrado como Salida',
+        })
+      : null,
+    snapNextFloat !== null
+      ? arqRow('Fondo para mañana', money(snapNextFloat, 'text-cg-gold-deep'), {
+          hint: 'pre-carga el próximo cierre',
+        })
+      : null,
     driftNote,
     h(
       'div',
       { className: 'flex justify-end mt-4' },
       h(
         UI.Button,
-        { variant: 'outline', size: 'sm', onClick: startRedo, className: 'gap-1.5' },
+        { variant: 'outline', size: 'sm', onClick: () => setRedoOpen(true), className: 'gap-1.5' },
         h(UI.DynamicIcon, { icon: 'RotateCcw', size: 13 }),
         'Rehacer cierre'
+      )
+    )
+  );
+
+  // Confirmación de re-cierre con el dialog del core (no window.confirm).
+  const redoDialog = existingClose
+    ? h(UI.ConfirmDialog, {
+        open: redoOpen,
+        onOpenChange: setRedoOpen,
+        title: 'Rehacer el cierre de caja',
+        description: h(
+          'span',
+          null,
+          'Vas a rehacer el cierre de las ',
+          h('strong', { className: 'font-medium' }, hhmm(existingClose.closedAt)),
+          ' (esperado ',
+          h(
+            'strong',
+            { className: 'font-medium', style: { fontVariantNumeric: 'tabular-nums' } },
+            formatMoney(snapExpected)
+          ),
+          ', contado ',
+          h(
+            'strong',
+            { className: 'font-medium', style: { fontVariantNumeric: 'tabular-nums' } },
+            formatMoney(snapCounted)
+          ),
+          '). El cierre anterior se pisa y no queda registro.'
+        ),
+        confirmLabel: 'Rehacer cierre',
+        onConfirm: confirmRedo,
+      })
+    : null;
+
+  // ── Cuerpo: día SIN efectivo → cierre de un click ──
+  const quickBody = h(
+    'div',
+    { className: 'px-5 pb-5 pt-1 border-t border-cg-border' },
+    h(
+      'div',
+      {
+        className:
+          'flex items-start gap-2 mt-3 px-3.5 py-3 rounded-lg bg-cg-bg-hover border border-cg-border text-[12.5px] text-cg-text-secondary leading-snug',
+      },
+      h(UI.DynamicIcon, {
+        icon: 'Info',
+        size: 14,
+        className: 'text-cg-text-muted flex-shrink-0 mt-0.5',
+      }),
+      h(
+        'span',
+        null,
+        'Hoy no hubo movimientos de efectivo — no hay nada que contar. ',
+        digitalCobrado > 0
+          ? h(
+              'span',
+              null,
+              'Lo digital del día (',
+              h(
+                'strong',
+                {
+                  className: 'font-medium text-cg-text',
+                  style: { fontVariantNumeric: 'tabular-nums' },
+                },
+                formatMoney(digitalCobrado)
+              ),
+              ') va al banco.'
+            )
+          : null
+      )
+    ),
+    arqRow('Fondo en el cajón', moneyInput(openingFloat, setOpeningFloat), {
+      hint: 'queda igual para mañana',
+    }),
+    h(
+      'div',
+      { className: 'flex items-center justify-end gap-2 mt-4' },
+      h(
+        UI.Button,
+        { variant: 'outline', size: 'sm', disabled: busy, onClick: () => setForceCount(true) },
+        'Contar igual'
+      ),
+      h(
+        UI.Button,
+        {
+          variant: 'brand',
+          size: 'sm',
+          disabled: busy,
+          onClick: () => void quickSave(),
+          className: 'gap-1.5',
+        },
+        h(UI.DynamicIcon, { icon: 'Lock', size: 13 }),
+        'Cerrar sin conteo'
       )
     )
   );
@@ -327,7 +491,10 @@ export function CashCloseSection({
     'div',
     { className: 'px-5 pb-5 pt-1 border-t border-cg-border' },
     arqRow('Fondo inicial', moneyInput(openingFloat, setOpeningFloat), {
-      hint: 'con qué empezó la caja',
+      hint:
+        !existingClose && prevFloat !== null
+          ? 'heredado del cierre anterior'
+          : 'con qué empezó la caja',
     }),
     arqRow(
       'Efectivo cobrado',
@@ -348,8 +515,9 @@ export function CashCloseSection({
           className: 'text-[15px] text-cg-text-secondary',
           style: { fontVariantNumeric: 'tabular-nums' },
         },
-        `− ${formatMoney(egresos)}`
-      )
+        `− ${formatMoney(egresosPrevios)}`
+      ),
+      snapWithdrawn > 0 ? { hint: 'sin contar el retiro del cierre anterior' } : {}
     ),
     sep,
     arqRow(
@@ -364,7 +532,7 @@ export function CashCloseSection({
       ),
       { total: true }
     ),
-    arqRow('Contado', moneyInput(counted, setCounted, '—'), {
+    arqRow('Contado', moneyInput(counted, setCounted, { placeholder: '—' }), {
       hint: 'lo que contás en el cajón',
     }),
     sep,
@@ -373,6 +541,22 @@ export function CashCloseSection({
       { className: 'flex items-center gap-3.5 py-2.5' },
       h('span', { className: 'text-sm font-medium text-cg-text' }, 'Diferencia'),
       editDiffChip
+    ),
+    // ¿Qué hacés con el efectivo? Retiro (Salida automática) + fondo que queda.
+    sep,
+    arqRow(
+      'Retirás',
+      moneyInput(withdraw, setWithdraw, { placeholder: '0', disabled: !hasCounted }),
+      { hint: 'se registra como Salida' }
+    ),
+    arqRow(
+      'Dejás de fondo',
+      moneyInput(
+        hasCounted ? String(nextFloatNum) : '',
+        (v) => setWithdraw(String(Math.max(countedNum - digits(v), 0))),
+        { placeholder: '—', disabled: !hasCounted }
+      ),
+      { hint: 'mañana la caja arranca con esto' }
     ),
     // Nota: lo digital no entra al arqueo
     h(
@@ -403,10 +587,18 @@ export function CashCloseSection({
     h(
       'div',
       { className: 'flex items-center justify-end gap-2 mt-4' },
-      editing
+      editing || forceCount
         ? h(
             UI.Button,
-            { variant: 'outline', size: 'sm', disabled: busy, onClick: () => setEditing(false) },
+            {
+              variant: 'outline',
+              size: 'sm',
+              disabled: busy,
+              onClick: () => {
+                setEditing(false);
+                setForceCount(false);
+              },
+            },
             'Cancelar'
           )
         : null,
@@ -425,7 +617,7 @@ export function CashCloseSection({
     )
   );
 
-  const body = open ? (showSnapshot ? closedBody : editBody) : null;
+  const body = open ? (showSnapshot ? closedBody : showQuick ? quickBody : editBody) : null;
 
   return h(
     'div',
@@ -435,6 +627,7 @@ export function CashCloseSection({
       }`,
     },
     head,
-    body
+    body,
+    redoDialog
   );
 }

@@ -14,7 +14,8 @@ const UI = getHostUI();
 import { PAYMENT_METHOD_GROUPS, METHOD_LABEL, ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useCaja } from '../../data/useCaja.js';
 import type { CajaPayment } from '../../data/useCaja.js';
-import { useCashClose } from '../../data/useCashClose.js';
+import { useCashClose, useRecentCloses } from '../../data/useCashClose.js';
+import type { CajaClose } from '../../data/useCashClose.js';
 import { useBillingSettings } from '../../settings/derive.js';
 import { localDayKey, addDays, hhmm } from '../../utils/day.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
@@ -175,7 +176,13 @@ export function CajaView() {
   const { rows: payRows, loading, error, reload } = useCaja(apiRange);
   const { close, reload: reloadClose } = useCashClose(selectedDay);
   const { close: yesterdayClose } = useCashClose(yesterdayKey);
+  const { closes: recentCloses, reload: reloadRecent } = useRecentCloses(14);
   const { settings: cfg } = useBillingSettings();
+
+  // El cierre puede crear una Salida (retiro) → refrescar también pagos e historial.
+  const reloadDay = async () => {
+    await Promise.all([reload(), reloadClose(), reloadRecent()]);
+  };
 
   // Pagos del día, separados por dirección de la cuenta: cobros (receivable) vs egresos
   // (payable). Los egresos ahora se cargan en Salidas/Movimientos; Caja solo los REFLEJA.
@@ -245,7 +252,31 @@ export function CajaView() {
       'div',
       { className: 'flex flex-col gap-1.5' },
       eyebrow('Cobros', 'text-cg-gold-deep'),
-      h('h1', { className: `${SERIF} text-3xl leading-none m-0 text-cg-text` }, 'Caja diaria'),
+      h(
+        'div',
+        { className: 'flex items-center gap-3 flex-wrap' },
+        h('h1', { className: `${SERIF} text-3xl leading-none m-0 text-cg-text` }, 'Caja diaria'),
+        // Estado del día: la caja está abierta hasta que se hace el cierre.
+        close
+          ? h(
+              'span',
+              {
+                className:
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cg-success-bg text-cg-success text-xs font-medium',
+              },
+              h(UI.DynamicIcon, { icon: 'Lock', size: 12 }),
+              `Cerrada · ${hhmm(close.closedAt)}`
+            )
+          : h(
+              'span',
+              {
+                className:
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cg-gold-soft text-cg-gold-deep text-xs font-medium',
+              },
+              h(UI.DynamicIcon, { icon: 'LockOpen', size: 12 }),
+              'Abierta'
+            )
+      ),
       h(
         'p',
         { className: 'text-sm text-cg-text-muted m-0' },
@@ -559,10 +590,7 @@ export function CajaView() {
     { className: 'font-sans min-h-screen bg-cg-bg-secondary p-6' },
     h(
       'div',
-      {
-        className: 'flex flex-col gap-6',
-        style: { maxWidth: 1080, margin: '0 auto' },
-      },
+      { className: 'flex flex-col gap-6' },
       header,
       needsClose
         ? h(
@@ -624,8 +652,78 @@ export function CajaView() {
         egresos: egresosEfectivo,
         digitalCobrado,
         existingClose: close,
-        reload: reloadClose,
-      })
+        reload: reloadDay,
+      }),
+
+      // Historial: últimos 7 días con su resultado de cierre, clickeables.
+      h(
+        'div',
+        null,
+        secLabel({ icon: 'History', label: 'Últimos cierres' }),
+        h(
+          'div',
+          { className: 'flex items-stretch gap-2 flex-wrap' },
+          ...Array.from({ length: 7 }, (_, i) => {
+            const day = addDays(todayKey, -i);
+            const dayClose = recentCloses.find((c: CajaClose) => c.businessDay === day) ?? null;
+            return h(CloseHistoryChip, {
+              key: day,
+              day,
+              label: i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : `${day.slice(8, 10)}/${day.slice(5, 7)}`,
+              close: dayClose,
+              selected: day === selectedDay,
+              onSelect: () => setSelectedDay(day),
+            });
+          })
+        )
+      )
+    )
+  );
+}
+
+/** Chip de un día en la tira de historial: resultado del cierre (o sin cerrar). */
+function CloseHistoryChip({
+  day,
+  label,
+  close,
+  selected,
+  onSelect,
+}: {
+  day: string;
+  label: string;
+  close: CajaClose | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const diff = close ? Number(close.difference) || 0 : 0;
+  const state = !close ? 'open' : diff < -0.005 ? 'short' : diff > 0.005 ? 'over' : 'exact';
+  const STATE_UI: Record<string, { icon: string; cls: string; text: string }> = {
+    exact: { icon: 'Check', cls: 'text-cg-success', text: 'Exacta' },
+    short: {
+      icon: 'ArrowUpFromLine',
+      cls: 'text-cg-red-deep',
+      text: `Faltó ${formatMoney(Math.abs(diff))}`,
+    },
+    over: { icon: 'ArrowDownToLine', cls: 'text-cg-gold-deep', text: `Sobró ${formatMoney(diff)}` },
+    open: { icon: 'Minus', cls: 'text-cg-text-muted', text: 'Sin cerrar' },
+  };
+  const ui = STATE_UI[state];
+  return h(
+    'button',
+    {
+      type: 'button',
+      onClick: onSelect,
+      title: `${day} · ${ui.text}`,
+      className: `flex flex-col items-start gap-1 px-3 py-2 rounded-lg border text-left transition-colors hover:bg-cg-bg-hover ${
+        selected ? 'border-cg-gold-deep bg-cg-surface' : 'border-cg-border bg-cg-surface'
+      }`,
+    },
+    h('span', { className: 'text-[11px] font-semibold text-cg-text-secondary' }, label),
+    h(
+      'span',
+      { className: `inline-flex items-center gap-1 text-[11.5px] ${ui.cls}` },
+      h(UI.DynamicIcon, { icon: ui.icon, size: 11 }),
+      ui.text
     )
   );
 }
