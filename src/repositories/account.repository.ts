@@ -103,7 +103,7 @@ export class AccountRepository {
    * con `SUM ... GROUP BY` en la base (escalable). Base de todos los saldos derivados;
    * compartido por listWithTotals y listDebtors para no duplicar las agregaciones.
    */
-  private async accountTotals(): Promise<{
+  private async _accountTotals(): Promise<{
     totalBy: Map<string, string>;
     paidBy: Map<string, string>;
   }> {
@@ -150,7 +150,7 @@ export class AccountRepository {
       return conditions.length ? q.where(and(...conditions)) : q;
     })) as AccountRow[];
 
-    const { totalBy, paidBy } = await this.accountTotals();
+    const { totalBy, paidBy } = await this._accountTotals();
     return (
       accounts
         .map((a) => {
@@ -214,7 +214,7 @@ export class AccountRepository {
     const accounts = (await this.db.ormQuery((tx) =>
       tx.select().from(accountTable).where(eq(accountTable.direction, direction))
     )) as AccountRow[];
-    const { totalBy, paidBy } = await this.accountTotals();
+    const { totalBy, paidBy } = await this._accountTotals();
 
     // Cuenta nula '—' como clave para los mostradores sin contacto, se mapea a null al salir.
     const byContact = new Map<string, { debt: number; count: number; oldest: string }>();
