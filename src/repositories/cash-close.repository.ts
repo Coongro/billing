@@ -23,7 +23,7 @@ export class CashCloseRepository {
    *
    * Ciclo del efectivo (COONG-250): `withdrawn` = lo que se retira del cajón al cerrar y
    * `nextFloat` = lo que queda de fondo para mañana. Si hay retiro, se registra una
-   * Salida automática en el ledger (cuenta payable + pago efectivo) — ver syncWithdraw.
+   * Salida automática en el ledger (cuenta payable + pago efectivo) — ver _syncWithdraw.
    */
   async record({
     businessDay,
@@ -85,7 +85,7 @@ export class CashCloseRepository {
       );
       saved = created[0];
     }
-    await this.syncWithdraw(businessDay, Number(withdrawn) || 0);
+    await this._syncWithdraw(businessDay, Number(withdrawn) || 0);
     return saved;
   }
 
@@ -95,8 +95,13 @@ export class CashCloseRepository {
    * `cash-close:<día>` (ref opaca — el mismo dedupe que usan las visitas). Re-cerrar
    * reemplaza línea y pago con el monto nuevo; retiro en 0 la elimina. Así el retiro
    * aparece en Salidas y en los egresos del día sin cargarlo a mano, sin duplicarse.
+   *
+   * Prefijo `_`: el auto-wire del runtime registra como acción RPC todo método del
+   * prototipo salvo el constructor y los que empiezan con `_`. El `private` de TS se
+   * borra al compilar, así que no basta para dejarlo fuera de la superficie invocable
+   * — y este método BORRA cuenta, línea y pago cuando el retiro es 0 (COONG-268).
    */
-  private async syncWithdraw(businessDay: string, withdrawn: number): Promise<void> {
+  private async _syncWithdraw(businessDay: string, withdrawn: number): Promise<void> {
     const ref = withdrawRef(businessDay);
     const existing = (await this.db.ormQuery((tx) =>
       tx.select().from(accountTable).where(eq(accountTable.consultation_id, ref)).limit(1)
