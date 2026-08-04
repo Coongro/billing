@@ -1,6 +1,6 @@
 {
   "id": "billing",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "2.0",
   "displayName": "Cobros",
   "assets": {
@@ -50,22 +50,61 @@
       {
         "module": "./dist/repositories/account.repository.js",
         "export": "AccountRepository",
-        "prefix": "billing.accounts"
+        "prefix": "billing.accounts",
+        "actions": [
+          "list",
+          "openForVisit",
+          "openForSource",
+          "listWithTotals",
+          "getWithLines",
+          "listDebtors",
+          "close",
+          "getById",
+          "create",
+          "update",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/account-line.repository.js",
         "export": "AccountLineRepository",
-        "prefix": "billing.lines"
+        "prefix": "billing.lines",
+        "actions": [
+          "list",
+          "listByAccount",
+          "listInRange",
+          "add",
+          "syncSource",
+          "getById",
+          "create",
+          "update",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/payment.repository.js",
         "export": "PaymentRepository",
-        "prefix": "billing.payments"
+        "prefix": "billing.payments",
+        "actions": [
+          "list",
+          "record",
+          "listByAccount",
+          "listInRange",
+          "getById",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/cash-close.repository.js",
         "export": "CashCloseRepository",
-        "prefix": "billing.cashCloses"
+        "prefix": "billing.cashCloses",
+        "actions": [
+          "record",
+          "getByDay",
+          "getPrevious",
+          "listRecent",
+          "delete"
+        ]
       }
     ],
     "settings": {
@@ -206,6 +245,7 @@
           ]
         }
       ]
-    }
+    },
+    "copilotCapabilities": []
   }
 }
