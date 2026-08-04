@@ -136,14 +136,111 @@ export class AccountRepository {
    * El total se calcula con `SUM ... GROUP BY` en la base (escalable: no trae todas
    * las líneas a memoria). Acepta rango de fechas opcional sobre `opened_at`.
    */
+  /**
+   * Abre una cuenta que nace de otro plugin (el alquiler de un mes, una cuota),
+   * junto con sus líneas, **sin duplicar**: si ya existe una con el mismo
+   * (`source`, `sourceRef`) la devuelve tal cual y no toca nada.
+   *
+   * La idempotencia es el requisito central de la generación automática: apretar dos
+   * veces «generar el mes» no puede cobrarle dos veces al inquilino. Además del
+   * chequeo previo hay un índice único parcial en la base, que es lo que sostiene el
+   * caso de dos pedidos simultáneos.
+   *
+   * @returns la cuenta y si se creó recién (`created: false` = ya existía)
+   */
+  async openForSource({
+    source,
+    sourceRef,
+    contactId = null,
+    dueDate = null,
+    direction = 'receivable',
+    notes = null,
+    openedAt = null,
+    lines = [],
+  }: {
+    source: string;
+    sourceRef: string;
+    contactId?: string | null;
+    dueDate?: string | null;
+    direction?: string;
+    notes?: string | null;
+    openedAt?: string | null;
+    lines?: Array<{
+      description: string;
+      subtotal: string | number;
+      quantity?: string | number;
+      unitPrice?: string | number;
+      sourceType?: string;
+      sourceRef?: string | null;
+    }>;
+  }): Promise<{ account: AccountRow; created: boolean }> {
+    const existing = await this.db.ormQuery((tx) =>
+      tx
+        .select()
+        .from(accountTable)
+        .where(and(eq(accountTable.source, source), eq(accountTable.source_ref, sourceRef)))
+        .limit(1)
+    );
+    if (existing[0]) return { account: existing[0], created: false };
+
+    const accountId = crypto.randomUUID();
+    const row = {
+      id: accountId,
+      contact_id: contactId,
+      source,
+      source_ref: sourceRef,
+      due_date: dueDate,
+      direction,
+      status: 'open',
+      notes,
+      ...(openedAt ? { opened_at: toIsoUtc(openedAt) } : {}),
+    } as unknown as NewAccountRow;
+
+    const created = await this.db.ormQuery((tx) => tx.insert(accountTable).values(row).returning());
+
+    if (lines.length > 0) {
+      const lineRows = lines.map((l) => ({
+        id: crypto.randomUUID(),
+        account_id: accountId,
+        description: l.description,
+        // Un cargo de alquiler es una unidad de algo: la cantidad existe para los
+        // casos que sí la usan (expensas prorrateadas, servicios medidos).
+        quantity: String(l.quantity ?? 1),
+        unit_price: String(l.unitPrice ?? l.subtotal),
+        subtotal: String(l.subtotal),
+        source_type: l.sourceType ?? source,
+        source_ref: l.sourceRef ?? null,
+      }));
+      await this.db.ormQuery((tx) => tx.insert(accountLineTable).values(lineRows).returning());
+    }
+
+    return { account: created[0], created: true };
+  }
+
   async listWithTotals({
     from,
     to,
     direction = 'receivable',
-  }: { from?: string; to?: string; direction?: string } = {}): Promise<AccountWithTotal[]> {
+    source,
+    refSuffix,
+  }: {
+    from?: string;
+    to?: string;
+    direction?: string;
+    /** Filtra por origen (ej. `rent` para ver solo alquileres). */
+    source?: string;
+    /**
+     * Filtra por el final de `source_ref`. Los cargos de alquiler se referencian como
+     * `<leaseId>:<período>`, así que `:2026-08` trae los de agosto sin tener que
+     * mirar `opened_at` — que es cuándo se generó el cargo, no qué mes cobra.
+     */
+    refSuffix?: string;
+  } = {}): Promise<AccountWithTotal[]> {
     const conditions: SQL[] = [eq(accountTable.direction, direction)];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
+    if (source) conditions.push(eq(accountTable.source, source));
+    if (refSuffix) conditions.push(sql`${accountTable.source_ref} like ${'%' + refSuffix}`);
 
     const accounts = (await this.db.ormQuery((tx) => {
       const q = tx.select().from(accountTable);
@@ -156,7 +253,21 @@ export class AccountRepository {
         .map((a) => {
           const total = totalBy.get(a.id) ?? '0';
           const summary = derivePaymentSummary(total, paidBy.get(a.id) ?? '0');
-          return { ...a, opened_at: toIsoUtc(a.opened_at), total, ...summary };
+          // «Vencido» no es un estado guardado: es tener saldo después de la fecha de
+          // vencimiento. Guardarlo obligaría a un proceso diario y el día que no
+          // corriera, una deuda vencida se vería al día.
+          const vencido =
+            a.due_date !== null &&
+            a.due_date !== undefined &&
+            a.due_date < new Date().toISOString().slice(0, 10) &&
+            Number(summary.balance) > 0.005;
+          return {
+            ...a,
+            opened_at: toIsoUtc(a.opened_at),
+            total,
+            ...summary,
+            ...(vencido ? { status: 'overdue' } : {}),
+          };
         })
         // Cuentas sin líneas NI pagos = mostradores abiertos y abandonados (ej. openForVisit
         // que nunca recibió una línea). Son ruido en Cobros, no un cobro real → se ocultan.
