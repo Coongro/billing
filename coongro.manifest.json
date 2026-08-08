@@ -1,6 +1,6 @@
 {
   "id": "billing",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": "2.0",
   "displayName": "Cobros",
   "assets": {
@@ -50,32 +50,65 @@
       {
         "module": "./dist/repositories/account.repository.js",
         "export": "AccountRepository",
-        "prefix": "billing.accounts"
+        "prefix": "billing.accounts",
+        "actions": [
+          "list",
+          "openForVisit",
+          "openForSource",
+          "listWithTotals",
+          "getWithLines",
+          "listDebtors",
+          "close",
+          "getById",
+          "create",
+          "update",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/account-line.repository.js",
         "export": "AccountLineRepository",
-        "prefix": "billing.lines"
+        "prefix": "billing.lines",
+        "actions": [
+          "list",
+          "listByAccount",
+          "listInRange",
+          "add",
+          "syncSource",
+          "getById",
+          "create",
+          "update",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/payment.repository.js",
         "export": "PaymentRepository",
-        "prefix": "billing.payments"
+        "prefix": "billing.payments",
+        "actions": [
+          "list",
+          "record",
+          "listByAccount",
+          "listInRange",
+          "getById",
+          "delete"
+        ]
       },
       {
         "module": "./dist/repositories/cash-close.repository.js",
         "export": "CashCloseRepository",
-        "prefix": "billing.cashCloses"
+        "prefix": "billing.cashCloses",
+        "actions": [
+          "record",
+          "getByDay",
+          "getPrevious",
+          "listRecent",
+          "delete"
+        ]
       }
     ],
     "settings": {
-      "groups": [
-        {
-          "id": "billing",
-          "label": "Cobros y caja",
-          "order": 50
-        }
-      ],
+      "groups": [{ "id": "billing", "label": "Cobros y caja", "order": 50 }],
       "pages": [
         {
           "id": "billing.general",
@@ -83,6 +116,13 @@
           "label": "Caja",
           "icon": "assets/icons/wallet.svg",
           "order": 10
+        },
+        {
+          "id": "billing.charging",
+          "group": "billing",
+          "label": "Cobros",
+          "icon": "CreditCard",
+          "order": 5
         }
       ],
       "sections": [
@@ -96,20 +136,116 @@
               "key": "billing.cash.openingFloat",
               "type": "number",
               "label": "Fondo inicial de caja",
-              "description": "Efectivo con el que arranca el cajón cada día, para el arqueo. Se pre-rellena al cerrar la caja; podés ajustarlo ahí.",
+              "description": "Efectivo con el que arranca el cajón cuando no hay un cierre anterior. Después del primer cierre, el fondo del día siguiente sale de lo que dejaste al cerrar (\"Dejás de fondo\").",
               "default": 0,
               "min": 0,
+              "tags": ["billing", "caja", "fondo", "inicial", "arqueo"]
+            },
+            {
+              "key": "billing.cash.rounding",
+              "type": "enum",
+              "label": "Redondeo de efectivo",
+              "description": "Al cobrar en efectivo, redondear el total para evitar vueltos con monedas. Solo afecta al efectivo; los medios digitales se cobran exactos.",
+              "default": "off",
+              "options": [
+                { "value": "off", "label": "Sin redondeo" },
+                { "value": "50", "label": "A $50" },
+                { "value": "100", "label": "A $100" }
+              ],
+              "tags": ["billing", "cash", "rounding", "redondeo", "efectivo"]
+            },
+            {
+              "key": "billing.cash.requireClose",
+              "type": "boolean",
+              "label": "Exigir arqueo diario",
+              "description": "Pedir el cierre de caja (arqueo del efectivo) de cada día antes de poder operar el día siguiente. Útil para clínicas que controlan el efectivo a diario.",
+              "default": false,
               "tags": [
                 "billing",
-                "caja",
-                "fondo",
-                "inicial",
-                "arqueo"
+                "cash",
+                "requireclose",
+                "exigir",
+                "arqueo",
+                "diario"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "billing.charging.methods",
+          "page": "billing.charging",
+          "label": "Medios de pago",
+          "order": 10,
+          "items": [
+            {
+              "key": "billing.payments.transferencia",
+              "type": "boolean",
+              "label": "Aceptar transferencia",
+              "description": "Ofrecer transferencia (CBU/CVU) como medio de cobro. Se acredita al instante y sin comisión.",
+              "default": true,
+              "tags": ["billing", "payments", "transferencia", "aceptar"]
+            },
+            {
+              "key": "billing.payments.debito",
+              "type": "boolean",
+              "label": "Aceptar débito",
+              "description": "Ofrecer tarjeta de débito como medio de cobro. Se acredita después, con comisión del posnet.",
+              "default": true,
+              "tags": ["billing", "payments", "debito", "aceptar", "débito"]
+            },
+            {
+              "key": "billing.payments.credito",
+              "type": "boolean",
+              "label": "Aceptar crédito",
+              "description": "Ofrecer tarjeta de crédito como medio de cobro. Podés cargarle un recargo automático más abajo.",
+              "default": true,
+              "tags": ["billing", "payments", "credito", "aceptar", "crédito"]
+            }
+          ]
+        },
+        {
+          "id": "billing.charging.rules",
+          "page": "billing.charging",
+          "label": "Reglas de cobro",
+          "order": 20,
+          "items": [
+            {
+              "key": "billing.payments.creditSurcharge",
+              "type": "number",
+              "label": "Recargo por pago con crédito (%)",
+              "description": "Porcentaje que se suma automáticamente al cobrar con tarjeta de crédito, para cubrir la comisión del posnet. Se agrega como una línea 'Recargo por crédito' en la cuenta. 0 = sin recargo.",
+              "default": 0,
+              "min": 0,
+              "max": 100,
+              "tags": [
+                "billing",
+                "payments",
+                "creditsurcharge",
+                "recargo",
+                "pago",
+                "crédito"
+              ]
+            },
+            {
+              "key": "billing.payments.onAccount",
+              "type": "boolean",
+              "label": "Permitir ventas a cuenta (fiado)",
+              "description": "Dejar cuentas con saldo pendiente para cobrar después. Si lo apagás, cada cobro debe saldar el total y no se acumulan deudores.",
+              "default": true,
+              "tags": [
+                "billing",
+                "payments",
+                "onaccount",
+                "permitir",
+                "ventas",
+                "cuenta",
+                "fiado"
               ]
             }
           ]
         }
       ]
-    }
+    },
+    "copilotCapabilities": []
   }
 }

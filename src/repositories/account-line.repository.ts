@@ -1,4 +1,3 @@
-
 import type { ModuleDatabaseAPI } from '@coongro/plugin-sdk';
 import { and, eq, gte, lte } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -8,13 +7,14 @@ import type { AccountLineRow, NewAccountLineRow } from '../schema/account-line.j
 import { accountTable } from '../schema/account.js';
 import { toIsoUtc } from '../utils/datetime.js';
 
-/** Línea con la fecha y el origen de su cuenta (para reportes/agregados por rango). */
+/** Línea con la fecha, el origen y la dirección de su cuenta (para reportes/agregados). */
 export interface AccountLineInRange {
   description: string;
   quantity: string;
   subtotal: string;
   source_type: string;
   account_source: string;
+  account_direction: string;
   opened_at: string;
 }
 
@@ -37,13 +37,21 @@ export class AccountLineRepository {
    * Pensado para reportes/dashboards (ej. "ingresos" y "ítems más cobrados" por período).
    * El filtro de fecha va sobre la cuenta, no la línea, para que todos los actos de una
    * misma visita compartan la fecha de la cuenta.
+   *
+   * `direction` filtra por dirección de la cuenta ('receivable' cobros | 'payable'
+   * salidas). Sin filtro devuelve todo, como siempre — los consumidores de reportes de
+   * ingresos DEBEN pasar 'receivable' para no contar salidas como ítems vendidos
+   * (COONG-249: el dashboard del kit listaba "Retiro" como servicio frecuente).
    */
-  async listInRange({ from, to }: { from?: string; to?: string } = {}): Promise<
-    AccountLineInRange[]
-  > {
+  async listInRange({
+    from,
+    to,
+    direction,
+  }: { from?: string; to?: string; direction?: string } = {}): Promise<AccountLineInRange[]> {
     const conditions: SQL[] = [];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
+    if (direction) conditions.push(eq(accountTable.direction, direction));
 
     const rows = (await this.db.ormQuery((tx) => {
       const q = tx
@@ -53,6 +61,7 @@ export class AccountLineRepository {
           subtotal: accountLineTable.subtotal,
           source_type: accountLineTable.source_type,
           account_source: accountTable.source,
+          account_direction: accountTable.direction,
           opened_at: accountTable.opened_at,
         })
         .from(accountLineTable)

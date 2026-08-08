@@ -24,6 +24,11 @@ export const cashCloseTable = pgTable('module_billing_cash_closes', {
   counted_cash: numeric('counted_cash').notNull(),
   // counted − expected. Negativo = falta, positivo = sobra. Snapshot.
   difference: numeric('difference').notNull(),
+  // Ciclo del efectivo (COONG-250): cuánto se retiró del cajón al cerrar (se registra
+  // como Salida automática) y cuánto quedó de fondo para el día siguiente. `next_float`
+  // pre-carga el fondo inicial del próximo cierre; null = cierre viejo sin decisión.
+  withdrawn: numeric('withdrawn').notNull().default('0'),
+  next_float: numeric('next_float'),
   closed_at: timestamp('closed_at', { mode: 'string' })
     .notNull()
     .default(sql`now()`),
