@@ -47,4 +47,6 @@ export const LINE_SOURCE_LABEL: Record<string, string> = {
   service: 'Servicio',
   vaccine: 'Vacuna',
   product: 'Producto',
+  surcharge: 'Recargo',
+  rounding: 'Redondeo',
 };

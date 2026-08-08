@@ -1,5 +1,7 @@
 /**
  * Caja diaria (COONG-211) — arqueo del día: cobrado − egresos = neto.
+ * COONG-249: el neto resta TODOS los egresos (no solo efectivo) para que el mismo
+ * universo esté en ambos lados de la resta; el arqueo sigue siendo solo-efectivo.
  * Rediseño 2026-06 según diseño aprobado: header + selector de fecha, tiles de
  * resumen, cobrado por disponibilidad, tabla de cobros, egresos y cierre.
  * Reutiliza los hooks de datos reales (useCaja/useCashClose) +
@@ -12,7 +14,9 @@ const UI = getHostUI();
 import { PAYMENT_METHOD_GROUPS, METHOD_LABEL, ACCOUNT_SOURCE_LABEL } from '../../constants.js';
 import { useCaja } from '../../data/useCaja.js';
 import type { CajaPayment } from '../../data/useCaja.js';
-import { useCashClose } from '../../data/useCashClose.js';
+import { useCashClose, useRecentCloses } from '../../data/useCashClose.js';
+import type { CajaClose } from '../../data/useCashClose.js';
+import { useBillingSettings } from '../../settings/derive.js';
 import { localDayKey, addDays, hhmm } from '../../utils/day.js';
 import { formatMoney, formatDate } from '../../utils/money.js';
 import { useMinWidth, gridCols } from '../../utils/responsive.js';
@@ -171,6 +175,14 @@ export function CajaView() {
 
   const { rows: payRows, loading, error, reload } = useCaja(apiRange);
   const { close, reload: reloadClose } = useCashClose(selectedDay);
+  const { close: yesterdayClose } = useCashClose(yesterdayKey);
+  const { closes: recentCloses, reload: reloadRecent } = useRecentCloses(14);
+  const { settings: cfg } = useBillingSettings();
+
+  // El cierre puede crear una Salida (retiro) → refrescar también pagos e historial.
+  const reloadDay = async () => {
+    await Promise.all([reload(), reloadClose(), reloadRecent()]);
+  };
 
   // Pagos del día, separados por dirección de la cuenta: cobros (receivable) vs egresos
   // (payable). Los egresos ahora se cargan en Salidas/Movimientos; Caja solo los REFLEJA.
@@ -179,13 +191,21 @@ export function CajaView() {
     [payRows, selectedDay]
   );
   const dayPayments = useMemo(
-    () => dayPaymentsRaw.filter((r) => r.direction !== 'payable'),
+    () =>
+      dayPaymentsRaw
+        .filter((r) => r.direction !== 'payable')
+        .sort((a, b) => a.paidAt.localeCompare(b.paidAt)),
     [dayPaymentsRaw]
   );
-  // Egresos que tocan el cajón = salidas (payable) pagadas en EFECTIVO en el día.
-  const daySalidasEfectivo = useMemo(
-    () => dayPaymentsRaw.filter((r) => r.direction === 'payable' && r.method === 'efectivo'),
+  // Salidas (payable) del día, TODOS los medios: un retiro por transferencia también es
+  // plata que salió. El arqueo usa solo las de efectivo (únicas que tocan el cajón).
+  const daySalidas = useMemo(
+    () => dayPaymentsRaw.filter((r) => r.direction === 'payable'),
     [dayPaymentsRaw]
+  );
+  const daySalidasEfectivo = useMemo(
+    () => daySalidas.filter((r) => r.method === 'efectivo'),
+    [daySalidas]
   );
 
   const total = useMemo(
@@ -197,17 +217,32 @@ export function CajaView() {
     for (const r of dayPayments) m[r.method] = (m[r.method] ?? 0) + Number(r.amount || 0);
     return m;
   }, [dayPayments]);
+  const egresosTotal = useMemo(
+    () => daySalidas.reduce((s, r) => s + Number(r.amount || 0), 0),
+    [daySalidas]
+  );
   const egresosEfectivo = useMemo(
     () => daySalidasEfectivo.reduce((s, r) => s + Number(r.amount || 0), 0),
     [daySalidasEfectivo]
   );
-  const neto = total - egresosEfectivo;
+  const egresosDigital = egresosTotal - egresosEfectivo;
+  const neto = total - egresosTotal;
   const digitalCobrado = total - (byMethod['efectivo'] ?? 0);
 
   const isToday = selectedDay === todayKey;
   const isYesterday = selectedDay === yesterdayKey;
   const dayLabel = isToday ? 'Hoy' : isYesterday ? 'Ayer' : formatDate(selectedDay);
   const dayWord = isToday ? 'hoy' : isYesterday ? 'ayer' : `del ${formatDate(selectedDay)}`;
+
+  // Arqueo pendiente: si se exige el cierre diario y ayer tuvo efectivo sin cerrar, avisar.
+  const yesterdayHadCash = useMemo(
+    () =>
+      payRows.some(
+        (r) => localDayKey(new Date(r.paidAt)) === yesterdayKey && r.method === 'efectivo'
+      ),
+    [payRows, yesterdayKey]
+  );
+  const needsClose = cfg.cashRequireClose && isToday && !yesterdayClose && yesterdayHadCash;
 
   // ── Header + selector de fecha ──
   const header = h(
@@ -217,7 +252,31 @@ export function CajaView() {
       'div',
       { className: 'flex flex-col gap-1.5' },
       eyebrow('Cobros', 'text-cg-gold-deep'),
-      h('h1', { className: `${SERIF} text-3xl leading-none m-0 text-cg-text` }, 'Caja diaria'),
+      h(
+        'div',
+        { className: 'flex items-center gap-3 flex-wrap' },
+        h('h1', { className: `${SERIF} text-3xl leading-none m-0 text-cg-text` }, 'Caja diaria'),
+        // Estado del día: la caja está abierta hasta que se hace el cierre.
+        close
+          ? h(
+              'span',
+              {
+                className:
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cg-success-bg text-cg-success text-xs font-medium',
+              },
+              h(UI.DynamicIcon, { icon: 'Lock', size: 12 }),
+              `Cerrada · ${hhmm(close.closedAt)}`
+            )
+          : h(
+              'span',
+              {
+                className:
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cg-gold-soft text-cg-gold-deep text-xs font-medium',
+              },
+              h(UI.DynamicIcon, { icon: 'LockOpen', size: 12 }),
+              'Abierta'
+            )
+      ),
       h(
         'p',
         { className: 'text-sm text-cg-text-muted m-0' },
@@ -281,8 +340,11 @@ export function CajaView() {
       icon: 'ArrowUpFromLine',
       iconCls: 'bg-cg-bg-hover text-cg-text-secondary border border-cg-border',
       label: 'Egresos',
-      value: egresosEfectivo > 0 ? `− ${formatMoney(egresosEfectivo)}` : formatMoney(0),
-      sub: `${daySalidasEfectivo.length} en efectivo · desde Movimientos`,
+      value: egresosTotal > 0 ? `− ${formatMoney(egresosTotal)}` : formatMoney(0),
+      sub:
+        egresosDigital > 0
+          ? `${formatMoney(egresosEfectivo)} efectivo · ${formatMoney(egresosDigital)} digital · desde Salidas`
+          : `${daySalidasEfectivo.length} en efectivo · desde Salidas`,
     }),
     tile({
       icon: 'Wallet',
@@ -528,11 +590,41 @@ export function CajaView() {
     { className: 'font-sans min-h-screen bg-cg-bg-secondary p-6' },
     h(
       'div',
-      {
-        className: 'flex flex-col gap-6',
-        style: { maxWidth: 1080, margin: '0 auto' },
-      },
+      { className: 'flex flex-col gap-6' },
       header,
+      needsClose
+        ? h(
+            'div',
+            {
+              className:
+                'flex items-center gap-3 p-4 rounded-xl border border-cg-gold-lt bg-cg-gold-soft',
+            },
+            h(UI.DynamicIcon, {
+              icon: 'TriangleAlert',
+              size: 18,
+              className: 'text-cg-gold-deep flex-shrink-0',
+            }),
+            h(
+              'div',
+              { className: 'flex-1 min-w-0' },
+              h(
+                'div',
+                { className: 'text-sm font-medium text-cg-text' },
+                'Tenés la caja de ayer sin cerrar'
+              ),
+              h(
+                'div',
+                { className: 'text-xs text-cg-gold-deep' },
+                'Hacé el arqueo de ayer para llevar el control diario del efectivo.'
+              )
+            ),
+            h(
+              UI.Button,
+              { variant: 'outline', size: 'sm', onClick: () => setSelectedDay(yesterdayKey) },
+              'Ver ayer'
+            )
+          )
+        : null,
       tiles,
 
       h(
@@ -560,8 +652,78 @@ export function CajaView() {
         egresos: egresosEfectivo,
         digitalCobrado,
         existingClose: close,
-        reload: reloadClose,
-      })
+        reload: reloadDay,
+      }),
+
+      // Historial: últimos 7 días con su resultado de cierre, clickeables.
+      h(
+        'div',
+        null,
+        secLabel({ icon: 'History', label: 'Últimos cierres' }),
+        h(
+          'div',
+          { className: 'flex items-stretch gap-2 flex-wrap' },
+          ...Array.from({ length: 7 }, (_, i) => {
+            const day = addDays(todayKey, -i);
+            const dayClose = recentCloses.find((c: CajaClose) => c.businessDay === day) ?? null;
+            return h(CloseHistoryChip, {
+              key: day,
+              day,
+              label: i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : `${day.slice(8, 10)}/${day.slice(5, 7)}`,
+              close: dayClose,
+              selected: day === selectedDay,
+              onSelect: () => setSelectedDay(day),
+            });
+          })
+        )
+      )
+    )
+  );
+}
+
+/** Chip de un día en la tira de historial: resultado del cierre (o sin cerrar). */
+function CloseHistoryChip({
+  day,
+  label,
+  close,
+  selected,
+  onSelect,
+}: {
+  day: string;
+  label: string;
+  close: CajaClose | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const diff = close ? Number(close.difference) || 0 : 0;
+  const state = !close ? 'open' : diff < -0.005 ? 'short' : diff > 0.005 ? 'over' : 'exact';
+  const STATE_UI: Record<string, { icon: string; cls: string; text: string }> = {
+    exact: { icon: 'Check', cls: 'text-cg-success', text: 'Exacta' },
+    short: {
+      icon: 'ArrowUpFromLine',
+      cls: 'text-cg-red-deep',
+      text: `Faltó ${formatMoney(Math.abs(diff))}`,
+    },
+    over: { icon: 'ArrowDownToLine', cls: 'text-cg-gold-deep', text: `Sobró ${formatMoney(diff)}` },
+    open: { icon: 'Minus', cls: 'text-cg-text-muted', text: 'Sin cerrar' },
+  };
+  const ui = STATE_UI[state];
+  return h(
+    'button',
+    {
+      type: 'button',
+      onClick: onSelect,
+      title: `${day} · ${ui.text}`,
+      className: `flex flex-col items-start gap-1 px-3 py-2 rounded-lg border text-left transition-colors hover:bg-cg-bg-hover ${
+        selected ? 'border-cg-gold-deep bg-cg-surface' : 'border-cg-border bg-cg-surface'
+      }`,
+    },
+    h('span', { className: 'text-[11px] font-semibold text-cg-text-secondary' }, label),
+    h(
+      'span',
+      { className: `inline-flex items-center gap-1 text-[11.5px] ${ui.cls}` },
+      h(UI.DynamicIcon, { icon: ui.icon, size: 11 }),
+      ui.text
     )
   );
 }
