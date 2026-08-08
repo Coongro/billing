@@ -1,6 +1,6 @@
 {
   "id": "billing",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": "2.0",
   "displayName": "Cobros",
   "assets": {
@@ -108,7 +108,13 @@
       }
     ],
     "settings": {
-      "groups": [{ "id": "billing", "label": "Cobros y caja", "order": 50 }],
+      "groups": [
+        {
+          "id": "billing",
+          "label": "Cobros y caja",
+          "order": 50
+        }
+      ],
       "pages": [
         {
           "id": "billing.general",
@@ -139,7 +145,13 @@
               "description": "Efectivo con el que arranca el cajón cuando no hay un cierre anterior. Después del primer cierre, el fondo del día siguiente sale de lo que dejaste al cerrar (\"Dejás de fondo\").",
               "default": 0,
               "min": 0,
-              "tags": ["billing", "caja", "fondo", "inicial", "arqueo"]
+              "tags": [
+                "billing",
+                "caja",
+                "fondo",
+                "inicial",
+                "arqueo"
+              ]
             },
             {
               "key": "billing.cash.rounding",
@@ -148,11 +160,26 @@
               "description": "Al cobrar en efectivo, redondear el total para evitar vueltos con monedas. Solo afecta al efectivo; los medios digitales se cobran exactos.",
               "default": "off",
               "options": [
-                { "value": "off", "label": "Sin redondeo" },
-                { "value": "50", "label": "A $50" },
-                { "value": "100", "label": "A $100" }
+                {
+                  "value": "off",
+                  "label": "Sin redondeo"
+                },
+                {
+                  "value": "50",
+                  "label": "A $50"
+                },
+                {
+                  "value": "100",
+                  "label": "A $100"
+                }
               ],
-              "tags": ["billing", "cash", "rounding", "redondeo", "efectivo"]
+              "tags": [
+                "billing",
+                "cash",
+                "rounding",
+                "redondeo",
+                "efectivo"
+              ]
             },
             {
               "key": "billing.cash.requireClose",
@@ -183,7 +210,12 @@
               "label": "Aceptar transferencia",
               "description": "Ofrecer transferencia (CBU/CVU) como medio de cobro. Se acredita al instante y sin comisión.",
               "default": true,
-              "tags": ["billing", "payments", "transferencia", "aceptar"]
+              "tags": [
+                "billing",
+                "payments",
+                "transferencia",
+                "aceptar"
+              ]
             },
             {
               "key": "billing.payments.debito",
@@ -191,7 +223,13 @@
               "label": "Aceptar débito",
               "description": "Ofrecer tarjeta de débito como medio de cobro. Se acredita después, con comisión del posnet.",
               "default": true,
-              "tags": ["billing", "payments", "debito", "aceptar", "débito"]
+              "tags": [
+                "billing",
+                "payments",
+                "debito",
+                "aceptar",
+                "débito"
+              ]
             },
             {
               "key": "billing.payments.credito",
@@ -199,7 +237,13 @@
               "label": "Aceptar crédito",
               "description": "Ofrecer tarjeta de crédito como medio de cobro. Podés cargarle un recargo automático más abajo.",
               "default": true,
-              "tags": ["billing", "payments", "credito", "aceptar", "crédito"]
+              "tags": [
+                "billing",
+                "payments",
+                "credito",
+                "aceptar",
+                "crédito"
+              ]
             }
           ]
         },
