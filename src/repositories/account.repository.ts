@@ -217,12 +217,57 @@ export class AccountRepository {
     return { account: created[0], created: true };
   }
 
+  /**
+   * Abre una cuenta a nombre de un cliente, sin ningún hecho de otro plugin
+   * detrás: el arreglo que se le pasa a un inquilino fuera del cargo del mes,
+   * un gasto que hay que registrarle a un proveedor.
+   *
+   * Existe porque las demás puertas de entrada están cerradas para el canal
+   * agentic y con razón —`openForVisit` es del kit veterinario y `openForSource`
+   * es el mecanismo interno de la emisión mensual—, pero cerrarlas todas dejaba
+   * un hueco real: si el mes todavía no se emitió, no hay ninguna cuenta a la
+   * que sumarle un concepto, y cobrarle algo a alguien se vuelve imposible
+   * hasta que corra la generación.
+   *
+   * El `source_ref` es un identificador propio recién generado. Eso es
+   * deliberado: la emisión de un mes usa `<leaseId>:<período>` y tiene un índice
+   * único: si esta operación pudiera elegir la referencia, un agente podría
+   * ocupar la del mes que viene y bloquear la emisión real, que después fallaría
+   * sin poder explicar por qué.
+   *
+   * La cuenta nace vacía y no aparece en los listados hasta que tiene algo
+   * cargado o cobrado (ver el filtro de `listWithTotals`): abrirla sola no
+   * ensucia nada.
+   */
+  async openForContact({
+    contactId,
+    direction = 'receivable',
+    notes = null,
+    dueDate = null,
+  }: {
+    contactId: string;
+    direction?: string;
+    notes?: string | null;
+    dueDate?: string | null;
+  }): Promise<AccountRow> {
+    const { account } = await this.openForSource({
+      source: 'manual',
+      sourceRef: crypto.randomUUID(),
+      contactId,
+      direction,
+      notes,
+      dueDate,
+    });
+    return account;
+  }
+
   async listWithTotals({
     from,
     to,
     direction = 'receivable',
     source,
     refSuffix,
+    contactId,
   }: {
     from?: string;
     to?: string;
@@ -235,12 +280,20 @@ export class AccountRepository {
      * mirar `opened_at` — que es cuándo se generó el cargo, no qué mes cobra.
      */
     refSuffix?: string;
+    /**
+     * Filtra por cliente. Existe por el camino que va de «¿quién me debe?» a
+     * «cobrale»: `listDebtors` agrupa por contacto y devuelve cuánto debe cada
+     * uno, no sus cuentas. Sin este filtro, para cobrarle a alguien había que
+     * traer TODAS las cuentas por cobrar del tenant y buscar las suyas a mano.
+     */
+    contactId?: string;
   } = {}): Promise<AccountWithTotal[]> {
     const conditions: SQL[] = [eq(accountTable.direction, direction)];
     if (from) conditions.push(gte(accountTable.opened_at, from));
     if (to) conditions.push(lte(accountTable.opened_at, to));
     if (source) conditions.push(eq(accountTable.source, source));
     if (refSuffix) conditions.push(sql`${accountTable.source_ref} like ${'%' + refSuffix}`);
+    if (contactId) conditions.push(eq(accountTable.contact_id, contactId));
 
     const accounts = (await this.db.ormQuery((tx) => {
       const q = tx.select().from(accountTable);
@@ -276,9 +329,17 @@ export class AccountRepository {
     );
   }
 
-  /** Cuenta + líneas + total + estado de cobro + pagos (para el detalle / drawer). */
+  /**
+   * Cuenta + líneas + total + estado de cobro + pagos (para el detalle / drawer).
+   *
+   * El encabezado va DOS veces: anidado en `account`, que es lo que lee la
+   * pantalla, y también arriba de todo. Lo segundo es para quien consume esto
+   * como una ficha plana —la proyección del canal agentic lo es— porque si no,
+   * el detalle de una cuenta puede decir cuánto se debe pero no de quién es ni
+   * para qué lado va la plata.
+   */
   async getWithLines({ id }: { id: string }): Promise<
-    | {
+    | (Omit<AccountRow, 'id'> & {
         account: AccountRow;
         lines: AccountLineRow[];
         total: string;
@@ -286,7 +347,7 @@ export class AccountRepository {
         balance: string;
         paymentStatus: PaymentStatus;
         payments: PaymentRow[];
-      }
+      })
     | undefined
   > {
     const accountRows = await this.db.ormQuery((tx) =>
@@ -303,7 +364,10 @@ export class AccountRepository {
     const total = lines.reduce((s, l) => s + Number(l.subtotal || 0), 0);
     const paidNum = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
     const summary = derivePaymentSummary(total, paidNum);
+    const { id: _id, ...encabezado } = account;
     return {
+      ...encabezado,
+      opened_at: toIsoUtc(account.opened_at),
       account,
       lines,
       total: String(total),
