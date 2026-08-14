@@ -10,6 +10,7 @@
     ]
   },
   "contributes": {
+    "actionContracts": "./dist/agentic/contracts.js",
     "menus": [
       {
         "path": "Cobros",
