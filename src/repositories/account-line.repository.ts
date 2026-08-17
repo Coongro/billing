@@ -75,6 +75,10 @@ export class AccountLineRepository {
    * Agrega una línea de cobro a una cuenta. Calcula el subtotal (qty × unit_price)
    * si no se pasa. Idempotente por `sourceRef` dentro de la cuenta: si ya existe una
    * línea con ese origen (ej. una aplicación de vacuna ya cobrada), no la duplica.
+   *
+   * Comprueba que la cuenta exista, porque acá se decide cuánto va a pagar alguien:
+   * con un id equivocado la línea quedaba colgada de nada —plata que nadie le
+   * reclama a nadie— y el que la agregó se iba convencido de haberla cargado.
    */
   async add({
     accountId,
@@ -95,6 +99,19 @@ export class AccountLineRepository {
     sourceType: string;
     sourceRef?: string | null;
   }): Promise<AccountLineRow> {
+    const [cuenta] = await this.db.ormQuery((tx) =>
+      tx
+        .select({ id: accountTable.id })
+        .from(accountTable)
+        .where(eq(accountTable.id, accountId))
+        .limit(1)
+    );
+    if (!cuenta) {
+      throw new Error(
+        'No existe esa cuenta: el concepto quedaría colgado de nada, sin sumarle a la deuda de nadie. Buscá la cuenta del período que querés tocar y volvé a intentar con su identificador.'
+      );
+    }
+
     if (sourceRef) {
       const dup = await this.db.ormQuery((tx) =>
         tx

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "resources": [],
+  "capabilities": [],
+  "manualViews": [
+    {
+      "viewId": "billing.cobros.open",
+      "mode": "covered"
+    },
+    {
+      "viewId": "billing.deudores.open",
+      "mode": "covered"
+    },
+    {
+      "viewId": "billing.caja.open",
+      "mode": "uiOnly",
+      "reason": "La caja diaria es el arqueo del efectivo del mostrador: alguien cuenta los billetes al cerrar el día y anota la diferencia contra lo que el sistema esperaba. Ni el cierre ni sus lecturas se publican —un agente no puede contar billetes, y su valor entero está en comparar lo que el sistema cree que hay contra lo que hay de verdad—, así que esta pantalla no tiene equivalente headless a propósito. La pregunta que sí se puede responder por catálogo, cuánto entró en un período, la contesta billing.payments.listInRange."
+    }
+  ]
+}
