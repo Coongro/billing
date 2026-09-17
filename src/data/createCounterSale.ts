@@ -76,7 +76,12 @@ async function deductStock(
       data: {
         product_id: productId,
         type: 'out',
-        quantity: String(shortfall),
+        // NEGATIVO a propósito: `products.stock.create` SIEMPRE suma la cantidad
+        // (`stock_current + quantity`); `type` es solo una etiqueta y no define el signo.
+        // En positivo, la venta AUMENTABA el stock en vez de descontarlo.
+        // Solo afectaba a productos SIN lote — los loteados los descuenta `batches.consume`,
+        // por eso no se notaba en veterinaria, pero es el caso normal de un kiosco.
+        quantity: String(-shortfall),
         reference_type: 'sale',
         reference_id: accountId,
       },
