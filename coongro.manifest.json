@@ -1002,7 +1002,7 @@
       },
       {
         "id": "billing.lines.manage",
-        "label": "Gestionar los conceptos de una cuenta",
+        "label": "Gestionar conceptos de cuentas",
         "effect": "write",
         "grants": {
           "actions": [
@@ -1012,20 +1012,18 @@
             "billing.lines.update"
           ]
         },
-        "requires": ["billing.lines.read"],
-        "generatedBy": "builder"
+        "requires": ["billing.lines.read"]
       },
       {
         "id": "billing.lines.delete",
-        "label": "Eliminar los conceptos de una cuenta",
+        "label": "Eliminar conceptos de cuentas",
         "effect": "destructive",
         "grants": { "actions": ["billing.lines.delete"] },
-        "requires": ["billing.lines.read"],
-        "generatedBy": "builder"
+        "requires": ["billing.lines.read"]
       },
       {
         "id": "billing.lines.read",
-        "label": "Ver los conceptos de una cuenta",
+        "label": "Ver conceptos de cuentas",
         "effect": "read",
         "grants": {
           "actions": [
@@ -1034,20 +1032,18 @@
             "billing.lines.listByAccount",
             "billing.lines.listInRange"
           ]
-        },
-        "generatedBy": "builder"
+        }
       },
       {
         "id": "billing.payments.delete",
-        "label": "Eliminar los cobros de una cuenta",
+        "label": "Eliminar cobros",
         "effect": "destructive",
         "grants": { "actions": ["billing.payments.delete"] },
-        "requires": ["billing.payments.read"],
-        "generatedBy": "builder"
+        "requires": ["billing.payments.read"]
       },
       {
         "id": "billing.payments.read",
-        "label": "Ver los cobros de una cuenta",
+        "label": "Ver cobros",
         "effect": "read",
         "grants": {
           "actions": [
@@ -1056,16 +1052,14 @@
             "billing.payments.listByAccount",
             "billing.payments.listInRange"
           ]
-        },
-        "generatedBy": "builder"
+        }
       },
       {
         "id": "billing.payments.manage",
-        "label": "Gestionar los cobros de una cuenta",
+        "label": "Registrar cobros",
         "effect": "write",
         "grants": { "actions": ["billing.payments.record"] },
-        "requires": ["billing.payments.read"],
-        "generatedBy": "builder"
+        "requires": ["billing.payments.read"]
       }
     ]
   }

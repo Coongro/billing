@@ -13,17 +13,17 @@ export const BillingPermissions = {
   cashClosesManage: 'billing.cashCloses.manage',
   /** Ver caja diaria */
   cashClosesRead: 'billing.cashCloses.read',
-  /** Eliminar los conceptos de una cuenta */
+  /** Eliminar conceptos de cuentas */
   linesDelete: 'billing.lines.delete',
-  /** Gestionar los conceptos de una cuenta */
+  /** Gestionar conceptos de cuentas */
   linesManage: 'billing.lines.manage',
-  /** Ver los conceptos de una cuenta */
+  /** Ver conceptos de cuentas */
   linesRead: 'billing.lines.read',
-  /** Eliminar los cobros de una cuenta */
+  /** Eliminar cobros */
   paymentsDelete: 'billing.payments.delete',
-  /** Gestionar los cobros de una cuenta */
+  /** Registrar cobros */
   paymentsManage: 'billing.payments.manage',
-  /** Ver los cobros de una cuenta */
+  /** Ver cobros */
   paymentsRead: 'billing.payments.read',
 } as const;
 
