@@ -104,13 +104,7 @@
       }
     ],
     "settings": {
-      "groups": [
-        {
-          "id": "billing",
-          "label": "Cobros y caja",
-          "order": 50
-        }
-      ],
+      "groups": [{ "id": "billing", "label": "Cobros y caja", "order": 50 }],
       "pages": [
         {
           "id": "billing.general",
@@ -141,13 +135,7 @@
               "description": "Efectivo con el que arranca el cajón cuando no hay un cierre anterior. Después del primer cierre, el fondo del día siguiente sale de lo que dejaste al cerrar (\"Dejás de fondo\").",
               "default": 0,
               "min": 0,
-              "tags": [
-                "billing",
-                "caja",
-                "fondo",
-                "inicial",
-                "arqueo"
-              ]
+              "tags": ["billing", "caja", "fondo", "inicial", "arqueo"]
             },
             {
               "key": "billing.cash.rounding",
@@ -156,26 +144,11 @@
               "description": "Al cobrar en efectivo, redondear el total para evitar vueltos con monedas. Solo afecta al efectivo; los medios digitales se cobran exactos.",
               "default": "off",
               "options": [
-                {
-                  "value": "off",
-                  "label": "Sin redondeo"
-                },
-                {
-                  "value": "50",
-                  "label": "A $50"
-                },
-                {
-                  "value": "100",
-                  "label": "A $100"
-                }
+                { "value": "off", "label": "Sin redondeo" },
+                { "value": "50", "label": "A $50" },
+                { "value": "100", "label": "A $100" }
               ],
-              "tags": [
-                "billing",
-                "cash",
-                "rounding",
-                "redondeo",
-                "efectivo"
-              ]
+              "tags": ["billing", "cash", "rounding", "redondeo", "efectivo"]
             },
             {
               "key": "billing.cash.requireClose",
@@ -206,12 +179,7 @@
               "label": "Aceptar transferencia",
               "description": "Ofrecer transferencia (CBU/CVU) como medio de cobro. Se acredita al instante y sin comisión.",
               "default": true,
-              "tags": [
-                "billing",
-                "payments",
-                "transferencia",
-                "aceptar"
-              ]
+              "tags": ["billing", "payments", "transferencia", "aceptar"]
             },
             {
               "key": "billing.payments.debito",
@@ -219,13 +187,7 @@
               "label": "Aceptar débito",
               "description": "Ofrecer tarjeta de débito como medio de cobro. Se acredita después, con comisión del posnet.",
               "default": true,
-              "tags": [
-                "billing",
-                "payments",
-                "debito",
-                "aceptar",
-                "débito"
-              ]
+              "tags": ["billing", "payments", "debito", "aceptar", "débito"]
             },
             {
               "key": "billing.payments.credito",
@@ -233,13 +195,7 @@
               "label": "Aceptar crédito",
               "description": "Ofrecer tarjeta de crédito como medio de cobro. Podés cargarle un recargo automático más abajo.",
               "default": true,
-              "tags": [
-                "billing",
-                "payments",
-                "credito",
-                "aceptar",
-                "crédito"
-              ]
+              "tags": ["billing", "payments", "credito", "aceptar", "crédito"]
             }
           ]
         },
@@ -969,6 +925,148 @@
     ],
     "copilotCatalogFingerprint": "358e9bf46f1b933d27bd39871d92cae3",
     "copilotCatalogContentFingerprint": "4c44266ed7e783beaea0c57d3c0dc0e5",
-    "copilotCatalogRuntimeFingerprint": "a23b35fcf50d97d1d7e82b593c945cf5"
+    "copilotCatalogRuntimeFingerprint": "a23b35fcf50d97d1d7e82b593c945cf5",
+    "permissions": [
+      {
+        "id": "billing.accounts.manage",
+        "label": "Gestionar cuentas",
+        "effect": "write",
+        "grants": {
+          "actions": [
+            "billing.accounts.close",
+            "billing.accounts.create",
+            "billing.accounts.openForContact",
+            "billing.accounts.openForSource",
+            "billing.accounts.openForVisit",
+            "billing.accounts.update"
+          ]
+        },
+        "requires": ["billing.accounts.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.accounts.delete",
+        "label": "Eliminar cuentas",
+        "effect": "destructive",
+        "grants": { "actions": ["billing.accounts.delete"] },
+        "requires": ["billing.accounts.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.accounts.read",
+        "label": "Ver cuentas",
+        "effect": "read",
+        "grants": {
+          "actions": [
+            "billing.accounts.getById",
+            "billing.accounts.getWithLines",
+            "billing.accounts.list",
+            "billing.accounts.listDebtors",
+            "billing.accounts.listWithTotals"
+          ],
+          "views": ["billing.cobros.open", "billing.deudores.open"]
+        },
+        "requires": ["contacts.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.cashCloses.delete",
+        "label": "Eliminar caja diaria",
+        "effect": "destructive",
+        "grants": { "actions": ["billing.cashCloses.delete"] },
+        "requires": ["billing.cashCloses.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.cashCloses.read",
+        "label": "Ver caja diaria",
+        "effect": "read",
+        "grants": {
+          "actions": [
+            "billing.cashCloses.getByDay",
+            "billing.cashCloses.getPrevious",
+            "billing.cashCloses.listRecent"
+          ],
+          "views": ["billing.caja.open"]
+        },
+        "requires": ["billing.payments.read", "contacts.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.cashCloses.manage",
+        "label": "Gestionar caja diaria",
+        "effect": "write",
+        "grants": { "actions": ["billing.cashCloses.record"] },
+        "requires": ["billing.cashCloses.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.lines.manage",
+        "label": "Gestionar los conceptos de una cuenta",
+        "effect": "write",
+        "grants": {
+          "actions": [
+            "billing.lines.add",
+            "billing.lines.create",
+            "billing.lines.syncSource",
+            "billing.lines.update"
+          ]
+        },
+        "requires": ["billing.lines.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.lines.delete",
+        "label": "Eliminar los conceptos de una cuenta",
+        "effect": "destructive",
+        "grants": { "actions": ["billing.lines.delete"] },
+        "requires": ["billing.lines.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.lines.read",
+        "label": "Ver los conceptos de una cuenta",
+        "effect": "read",
+        "grants": {
+          "actions": [
+            "billing.lines.getById",
+            "billing.lines.list",
+            "billing.lines.listByAccount",
+            "billing.lines.listInRange"
+          ]
+        },
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.payments.delete",
+        "label": "Eliminar los cobros de una cuenta",
+        "effect": "destructive",
+        "grants": { "actions": ["billing.payments.delete"] },
+        "requires": ["billing.payments.read"],
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.payments.read",
+        "label": "Ver los cobros de una cuenta",
+        "effect": "read",
+        "grants": {
+          "actions": [
+            "billing.payments.getById",
+            "billing.payments.list",
+            "billing.payments.listByAccount",
+            "billing.payments.listInRange"
+          ]
+        },
+        "generatedBy": "builder"
+      },
+      {
+        "id": "billing.payments.manage",
+        "label": "Gestionar los cobros de una cuenta",
+        "effect": "write",
+        "grants": { "actions": ["billing.payments.record"] },
+        "requires": ["billing.payments.read"],
+        "generatedBy": "builder"
+      }
+    ]
   }
 }
