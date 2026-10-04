@@ -32,6 +32,7 @@
     "quality": "npm run typecheck && npm run format:check && npm run lint",
     "quality:fix": "npm run format && npm run lint:fix",
     "sync-version": "node scripts/sync-version.cjs",
+    "version-packages": "node ../../scripts/version-packages.mjs",
     "version": "npm run sync-version && git add coongro.manifest.json",
     "prepublishOnly": "npm run quality && npm run build",
     "build": "npm run build:css && npm run copy:fontawesome && tsc",
