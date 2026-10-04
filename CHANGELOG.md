@@ -1,5 +1,52 @@
 # @coongro/billing
 
+## 0.4.0
+
+### Minor Changes
+
+- Billing pasa a tener plano agentic: nueve capabilities publicadas y certificadas
+  contra un tenant real.
+
+  Se puede preguntar quién debe plata, buscar cuentas con su saldo (por cliente,
+  por período o por origen), ver el detalle de una cuenta y lo cobrado entre dos
+  fechas; y se puede abrir una cuenta a nombre de un cliente, sumarle un concepto
+  y registrar un cobro.
+
+  `accounts.openForContact` es nueva y llena un hueco que nadie había nombrado:
+  las otras dos formas de abrir una cuenta pertenecen al kit veterinario y a la
+  emisión mensual, así que hasta que no corriera la generación no había ninguna
+  cuenta a la que cargarle nada. Genera su propia referencia de origen —no la
+  acepta— para no poder chocar con el cargo de un mes.
+
+  `accounts.listWithTotals` acepta ahora un cliente, que es lo que convierte
+  «quién me debe» en «cobrale», y el detalle de una cuenta dice de quién es y
+  para qué lado va la plata.
+
+  Corrige que el listado de deudores publicara el identificador del contacto como
+  si fuera el de una cuenta: quien encadenara esa referencia terminaba pasándole
+  un cliente a «registrar un cobro».
+
+- Cuentas y cobros declaran quién puede verlos y registrarlos
+
+  El plugin declara sus permisos (`contributes.permissions`, generados con el Coongro Builder) y trae `src/permissions/permissions.gen.ts` con las constantes para chequearlos en código. En Coongro Standalone, cada usuario ve y hace solo lo que le permiten sus roles; el dueño, todo.
+
+  Se declara la dependencia `@coongro/contacts`, que las vistas ya usaban.
+
+### Patch Changes
+
+- El retiro de un cierre se fecha en el día que se cierra, no en el del click
+
+  Cerrar la caja de ayer al día siguiente —cosa que la propia pantalla invita a hacer con el
+  aviso «tenés la caja de ayer sin cerrar»— metía el retiro como egreso de HOY. Y hoy ese
+  retiro ya venía descontado por otro lado: el fondo de apertura del día es el `next_float`
+  del cierre anterior, o sea el efectivo que quedó DESPUÉS de retirar.
+
+  Restado dos veces, el arqueo anunciaba un sobrante igual al monto retirado. Con $70.000
+  retirados ayer, la caja de hoy decía «sobran $70.000» estando cuadrada — y alguien podía
+  sacar esa plata creyendo que sobraba.
+
+  Ahora la cuenta y el pago del retiro se fechan en su `business_day`.
+
 ## 0.3.0
 
 ### Minor Changes
@@ -7,7 +54,6 @@
 - 1bf0fe9: feat(settings): configuración de cobros y caja (COONG-248)
 
   Nuevas settings de billing, editables desde `/dev/builder`:
-
   - **Medios de pago habilitados** (`billing.payments.transferencia/.debito/.credito`): cada clínica elige qué medios ofrece; el efectivo está siempre disponible. Reemplaza el set hardcodeado de `constants.ts` — los medios deshabilitados dejan de aparecer en el cobro y en la venta de mostrador.
   - **Recargo por pago con crédito** (`billing.payments.creditSurcharge`, %): al cobrar con crédito se agrega automáticamente una línea "Recargo por crédito (X%)" a la cuenta, para que quede trazable y la cuenta cierre balanceada.
   - **Permitir ventas a cuenta / fiado** (`billing.payments.onAccount`): con el fiado apagado, el cobro exige saldar el total (no se puede dejar saldo pendiente).
@@ -15,7 +61,6 @@
   - **Exigir arqueo diario** (`billing.cash.requireClose`): avisa en la Caja cuando quedó el día anterior sin cerrar.
 
 - e6d0b8b: feat(caja): el cierre deja la caja lista para mañana (COONG-250)
-
   - **Ciclo del efectivo**: al cerrar se decide cuánto se retira y cuánto queda de fondo (campos complementarios). El retiro se registra automáticamente como Salida (cuenta payable "Retiro de caja" + pago efectivo, idempotente por día). El fondo que queda (`next_float`) pre-carga el fondo inicial del día siguiente; la setting `billing.cash.openingFloat` pasa a ser solo el default cuando no hay cierre previo.
   - **Historial de cierres**: tira de últimos 7 días en la Caja (exacta / faltó / sobró / sin cerrar), clickeable para navegar al día.
   - **Cierre sin efectivo**: un día sin movimientos de efectivo cierra de un click, sin conteo.
@@ -26,7 +71,6 @@
 - 724b83b: Las cuentas pueden tener vencimiento y decir de dónde salieron
 
   Tres cosas que necesita cualquier kit que emita cargos por período, no solo el de alquileres:
-
   - **`due_date`**: cuándo vence lo que se cobra, para poder decir qué está vencido sin que cada kit lo calcule por su cuenta.
   - **`source_ref`** con índice único parcial: quién generó la cuenta. El que emite un mes busca por origen y referencia, y si ya existe no vuelve a emitirlo — así generar dos veces el mismo período no duplica nada.
   - **`direction`**: si la plata entra o sale. Convierte el ledger en un motor por cobrar / por pagar reutilizable, sin cambiar el comportamiento de lo que ya existía.
@@ -36,7 +80,6 @@
 ### Patch Changes
 
 - f73c68b: fix(caja): números coherentes y cierre de caja con autoridad (COONG-249)
-
   - El **Neto de caja** ahora resta TODOS los egresos del día (efectivo + digital), no solo los de efectivo — un retiro por transferencia ya no queda invisible. El tile de Egresos desglosa efectivo/digital y referencia "Salidas" (el nombre real del menú).
   - La tabla de cobros se ordena cronológicamente.
   - Un día **cerrado** muestra el snapshot guardado del cierre (fondo/esperado/contado/diferencia) en modo lectura, en vez de recalcular en vivo y contradecir el chip "Cerrada". Si hubo movimientos de efectivo posteriores al cierre, se avisa explícitamente con el esperado actual.
@@ -69,7 +112,6 @@
 
 - 7d02f1b: Cobros/Cuentas: tarjetas-resumen (Por cobrar · Cobrado · Cuentas · Deudores) como atajos de filtro de pago y acceso a la vista de deudores. Se pliega el submenú "Deudores" (ahora se llega desde la card) y "Cobros" pasa a link directo a Cuentas. Helper de grilla responsive extraído a `utils/responsive` (compartido con Caja) para no depender del cascade de Tailwind entre plugins.
 - 3aa92d7: feat(cobros): rediseño de Cobros + Cobro rápido con venta por lotes (FEFO)
-
   - **Cobros**: drawer de detalle de cuenta rediseñado (avatar + contexto, líneas con
     chip por origen, tarjeta de totales, pagos, cobro inline con montos rápidos y medios
     con iconos); badges de pago con iconos en la tabla.

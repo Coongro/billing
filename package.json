@@ -1,6 +1,6 @@
 {
   "name": "@coongro/billing",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Cuenta de atención y líneas de cobro (honorarios, servicios, vacunas, productos). Ledger interno reutilizable, no fiscal — la facturación AFIP es un add-on aparte.",
   "main": "dist/index.js",
@@ -32,6 +32,7 @@
     "quality": "npm run typecheck && npm run format:check && npm run lint",
     "quality:fix": "npm run format && npm run lint:fix",
     "sync-version": "node scripts/sync-version.cjs",
+    "version-packages": "node ../../scripts/version-packages.mjs",
     "version": "npm run sync-version && git add coongro.manifest.json",
     "prepublishOnly": "npm run quality && npm run build",
     "build": "npm run build:css && npm run copy:fontawesome && tsc",
@@ -41,6 +42,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@coongro/contacts": ">=0.1.0"
   },
   "peerDependencies": {
     "@coongro/plugin-sdk": ">=0.1.0"
