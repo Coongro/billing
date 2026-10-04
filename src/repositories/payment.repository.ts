@@ -29,6 +29,19 @@ export class PaymentRepository {
   /**
    * Registra un cobro contra una cuenta. Un pago por fila → soporta cobro parcial y split.
    * `paidAt` permite la fecha de negocio (default: ahora, ISO/UTC).
+   *
+   * Comprueba dos cosas antes de insertar, y las dos existen porque este es el
+   * camino por el que entra la plata:
+   *
+   * - **La cuenta tiene que existir.** Sin esto, un id equivocado creaba un pago
+   *   colgado de nada: la plata figuraba cobrada en la caja del día y la deuda
+   *   del inquilino seguía intacta, sin nada que relacionara las dos cosas.
+   * - **El importe tiene que ser positivo.** Un negativo acá es una devolución
+   *   disfrazada de cobro: baja el total cobrado del día sin quedar registrada
+   *   como lo que es. Si hay que devolver plata, se registra como devolución.
+   *
+   * Quien cobra desde la pantalla ve el saldo y difícilmente se equivoque de
+   * cuenta; un agente recibe un id y no tiene esa red.
    */
   async record({
     accountId,
@@ -43,6 +56,26 @@ export class PaymentRepository {
     paidAt?: string | null;
     notes?: string | null;
   }): Promise<PaymentRow> {
+    const monto = Number(amount);
+    if (!Number.isFinite(monto) || monto <= 0) {
+      throw new Error(
+        `El importe de un cobro tiene que ser mayor a cero (llegó «${amount}»). Para devolverle plata a alguien, registralo como devolución, no como un cobro en negativo.`
+      );
+    }
+
+    const [cuenta] = await this.db.ormQuery((tx) =>
+      tx
+        .select({ id: accountTable.id })
+        .from(accountTable)
+        .where(eq(accountTable.id, accountId))
+        .limit(1)
+    );
+    if (!cuenta) {
+      throw new Error(
+        'No existe esa cuenta: el cobro quedaría colgado de nada, sumando a la caja del día sin bajarle la deuda a nadie. Buscá la cuenta del inquilino y volvé a intentar con su identificador.'
+      );
+    }
+
     // Cast: drizzle $inferInsert omite columnas nullable (bug conocido); runtime inserta OK.
     const row = {
       id: crypto.randomUUID(),

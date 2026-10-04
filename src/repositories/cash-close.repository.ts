@@ -103,6 +103,19 @@ export class CashCloseRepository {
    */
   private async _syncWithdraw(businessDay: string, withdrawn: number): Promise<void> {
     const ref = withdrawRef(businessDay);
+    /**
+     * El retiro pertenece al día que se está cerrando, no al instante del click.
+     *
+     * Fechándolo con `now`, cerrar la caja de ayer —cosa que la propia pantalla invita a
+     * hacer con el aviso «tenés la caja de ayer sin cerrar»— metía el egreso en el arqueo
+     * de HOY, donde se restaba por segunda vez: una porque el fondo heredado ya viene
+     * neto del retiro, y otra porque el pago aparecía como salida del día. El arqueo
+     * informaba un sobrante igual al retiro, y alguien podía sacar plata que no sobraba.
+     *
+     * Mediodía UTC y no medianoche: con cualquier huso entre UTC-11 y UTC+11 la fecha
+     * local sigue cayendo en `businessDay`, que es con lo que la pantalla agrupa.
+     */
+    const momento = `${businessDay}T12:00:00.000Z`;
     const existing = (await this.db.ormQuery((tx) =>
       tx.select().from(accountTable).where(eq(accountTable.consultation_id, ref)).limit(1)
     )) as Array<{ id: string }>;
@@ -137,7 +150,7 @@ export class CashCloseRepository {
           source: 'gasto',
           status: 'open',
           direction: 'payable',
-          opened_at: new Date().toISOString(),
+          opened_at: momento,
           notes: 'Retiro de caja',
         } as never)
       );
@@ -166,7 +179,7 @@ export class CashCloseRepository {
         account_id: id,
         amount,
         method: 'efectivo',
-        paid_at: new Date().toISOString(),
+        paid_at: momento,
         notes: 'Retiro al cierre de caja',
       } as never)
     );
