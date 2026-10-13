@@ -30,6 +30,15 @@
       ],
       "@coongro/plugin-sdk/*": [
         "../../packages/plugin-sdk/dist/*"
+      ],
+      "@coongro/payments": [
+        "../payments/dist/index.d.ts"
+      ],
+      "@coongro/payments/*": [
+        "../payments/dist/*"
+      ],
+      "@coongro/ui-components": [
+        "../../packages/ui-components/dist/index.d.ts"
       ]
     }
   },

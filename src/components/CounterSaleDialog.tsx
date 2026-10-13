@@ -1,10 +1,12 @@
+import { QrChargeDialog, type Charge } from '@coongro/payments';
 import { getHostReact, getHostUI } from '@coongro/plugin-sdk';
 
-import { METHOD_LABEL } from '../constants.js';
+import { METHOD_LABEL, QR_METHOD } from '../constants.js';
 import { createCounterSale } from '../data/createCounterSale.js';
 import { lotesFEFO, loteRecomendado, repartir } from '../data/loteUtils.js';
 import { useContacts } from '../data/useContacts.js';
 import type { ContactOption } from '../data/useContacts.js';
+import { useQrProvider } from '../data/useQrProvider.js';
 import { useSaleCatalog } from '../data/useSaleCatalog.js';
 import type { SaleGroup, SaleProduct, ProductBucket } from '../data/useSaleCatalog.js';
 import {
@@ -29,12 +31,14 @@ const MEDIO_ICON: Record<string, string> = {
   transferencia: 'ArrowLeftRight',
   debito: 'CreditCard',
   credito: 'CreditCard',
+  [QR_METHOD]: 'QrCode',
 };
 const MEDIO_CAJA: Record<string, { caja: boolean; nota: string }> = {
   efectivo: { caja: true, nota: 'Entra a la caja del día' },
   transferencia: { caja: false, nota: 'No toca la caja' },
   debito: { caja: false, nota: 'Se acredita después' },
   credito: { caja: false, nota: 'Se acredita después' },
+  [QR_METHOD]: { caja: false, nota: 'Se acredita en la cuenta del proveedor' },
 };
 const TYPE_TAG: Record<ProductBucket, string> = { med: 'Med.', vacc: 'Vacuna', insumo: 'Insumo' };
 const BUCKET_ICON: Record<ProductBucket, string> = { med: 'Pill', vacc: 'Syringe', insumo: 'Box' };
@@ -292,6 +296,8 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
   const [items, setItems] = useState<LineState[]>([]);
   const [busy, setBusy] = useState(false);
   const [loteFor, setLoteFor] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  const qrProvider = useQrProvider(open);
 
   useEffect(() => {
     if (open) {
@@ -299,16 +305,18 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
       setMethod('efectivo');
       setItems([]);
       setLoteFor(null);
+      setQrOpen(false);
     }
   }, [open]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loteFor) onOpenChange(false);
+      // Con la ventana de cobro abierta, Esc la cierra a ella (y cancela el cobro), no la venta.
+      if (e.key === 'Escape' && !loteFor && !qrOpen) onOpenChange(false);
     };
     if (open) window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, loteFor, onOpenChange]);
+  }, [open, loteFor, qrOpen, onOpenChange]);
 
   if (!open) return null;
 
@@ -340,9 +348,13 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
   const caja = MEDIO_CAJA[method] ?? { caja: false, nota: '' };
 
   // Medios ofrecidos + ajuste del total según el medio (recargo por crédito / redondeo efectivo).
-  const methods = enabledMethods(cfg);
+  const methods = [
+    ...enabledMethods(cfg),
+    ...(qrProvider ? [{ value: QR_METHOD, label: `QR · ${qrProvider.label}` }] : []),
+  ];
   const methodEnabled =
     method === 'efectivo' ||
+    (method === QR_METHOD && qrProvider !== null) ||
     (method === 'transferencia' && cfg.paymentsTransferencia) ||
     (method === 'debito' && cfg.paymentsDebito) ||
     (method === 'credito' && cfg.paymentsCredito);
@@ -361,13 +373,19 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
         ? `Redondeo de efectivo: ${roundingDelta > 0 ? '+' : '−'}${formatMoney(Math.abs(roundingDelta))}`
         : null;
 
-  const save = async () => {
+  // Con QR la venta se registra recién cuando el pago se acredita (ver onQrPaid).
+  const save = async (paymentNote?: string) => {
     if (!valid) return;
+    if (method === QR_METHOD && !paymentNote) {
+      setQrOpen(true);
+      return;
+    }
     setBusy(true);
     try {
       await createCounterSale({
         contactId: cliente?.id ?? null,
         method,
+        paymentNote,
         lines: items.map((it) => {
           const batches = esLoteado(it.product)
             ? repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro).tramos.map((t) => ({
@@ -396,6 +414,11 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     } finally {
       setBusy(false);
     }
+  };
+
+  const onQrPaid = (charge: Charge) => {
+    const note = [charge.provider_label, charge.provider_ref].filter(Boolean).join(' · ');
+    void save(note || 'QR');
   };
 
   // ── Item ──
@@ -740,6 +763,20 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
           loteNro: editing.loteNro,
           onChange: (nro: string) => patchLine(editing.key, { loteNro: nro }),
           onClose: () => setLoteFor(null),
+        })
+      : null,
+    qrOpen && qrProvider
+      ? h(QrChargeDialog, {
+          open: qrOpen,
+          onOpenChange: setQrOpen,
+          request: {
+            provider: qrProvider.id,
+            amount: finalTotal,
+            description: 'Venta de mostrador',
+            source: 'billing',
+            metadata: { contactId: cliente?.id ?? null },
+          },
+          onPaid: onQrPaid,
         })
       : null
   );
