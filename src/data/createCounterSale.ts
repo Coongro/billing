@@ -99,7 +99,7 @@ async function deductLine(
 }
 
 /**
- * Venta de mostrador: vender productos sueltos (antipulgas, alimento) SIN consulta, en 1-2 pasos.
+ * Venta de mostrador: productos del catálogo o conceptos libres, sin turno ni consulta, en 1-2 pasos.
  * Crea una cuenta 'mostrador' con sus líneas, **registra el cobro en el acto** (la venta de
  * mostrador se paga al instante → aparece en la Caja del día como cobrado) y **descuenta el
  * stock** (products, dependencia blanda). Atómico desde el punto de vista del usuario.
@@ -156,7 +156,8 @@ export async function createCounterSale(input: {
       description: l.description.trim() || 'Producto',
       quantity: l.quantity,
       unitPrice: String(Number(l.unitPrice) || 0),
-      sourceType: 'product',
+      // Un concepto libre (sin producto) queda como línea manual, igual que en la cuenta.
+      sourceType: l.productId ? 'product' : 'manual',
     });
     // Baja de stock (blando): de los lotes elegidos si vienen, si no FIFO automático.
     if (l.productId) {

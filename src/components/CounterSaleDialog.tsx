@@ -7,8 +7,7 @@ import { lotesFEFO, loteRecomendado, repartir } from '../data/loteUtils.js';
 import { useContacts } from '../data/useContacts.js';
 import type { ContactOption } from '../data/useContacts.js';
 import { useQrProvider } from '../data/useQrProvider.js';
-import { useSaleCatalog } from '../data/useSaleCatalog.js';
-import type { SaleGroup, SaleProduct, ProductBucket } from '../data/useSaleCatalog.js';
+import { tieneLotes, useSaleCatalog, type SaleProduct } from '../data/useSaleCatalog.js';
 import {
   useBillingSettings,
   enabledMethods,
@@ -40,18 +39,18 @@ const MEDIO_CAJA: Record<string, { caja: boolean; nota: string }> = {
   credito: { caja: false, nota: 'Se acredita después' },
   [QR_METHOD]: { caja: false, nota: 'Se acredita en la cuenta del proveedor' },
 };
-const TYPE_TAG: Record<ProductBucket, string> = { med: 'Med.', vacc: 'Vacuna', insumo: 'Insumo' };
-const BUCKET_ICON: Record<ProductBucket, string> = { med: 'Pill', vacc: 'Syringe', insumo: 'Box' };
 const UNIDAD = 'u.';
 
 interface LineState {
   key: string;
-  product: SaleProduct;
+  /** Producto del catálogo; null en un concepto libre (descripción y precio a mano). */
+  product: SaleProduct | null;
+  description: string;
   quantity: number;
   unitPrice: number;
   loteNro: string | null;
 }
-const esLoteado = (p: SaleProduct) => p.bucket === 'med' || p.bucket === 'vacc';
+const esLoteado = (p: SaleProduct): boolean => tieneLotes(p);
 
 /** Hook: cerrar un menú con click afuera / Escape + autofocus al input. */
 function useMenuDismiss(open: boolean, close: () => void, wrap: any, input: any) {
@@ -175,26 +174,28 @@ function ClienteField(props: {
   );
 }
 
-// ── Selectores de producto por tipo (tabs + menú compartido) ──
-function CategoryAdder(props: {
-  groups: SaleGroup[];
+// ── Agregar: producto del catálogo (con buscador) o concepto libre ──
+function CatalogAdder(props: {
+  products: SaleProduct[];
   chosen: Set<string>;
   onAdd: (p: SaleProduct) => void;
+  onAddFree: () => void;
 }) {
-  const { groups, chosen, onAdd } = props;
-  const [open, setOpen] = useState<ProductBucket | null>(null);
+  const { products, chosen, onAdd, onAddFree } = props;
+  const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const wrap = useRef<any>(null);
   const input = useRef<any>(null);
   const close = () => {
-    setOpen(null);
+    setOpen(false);
     setQ('');
   };
-  useMenuDismiss(!!open, close, wrap, input);
-  const g = open ? groups.find((x) => x.key === open) : null;
+  useMenuDismiss(open, close, wrap, input);
   const norm = (s: string) => (s || '').toLowerCase();
-  const results = g ? g.products.filter((p) => !q || norm(p.name).includes(norm(q))) : [];
-  const activate = (id: ProductBucket) => (open === id ? close() : (setOpen(id), setQ('')));
+  const results = products.filter(
+    (p) => !q || norm(p.name).includes(norm(q)) || norm(p.category ?? '').includes(norm(q))
+  );
+  const hasCatalog = products.length > 0;
 
   return h(
     'div',
@@ -203,41 +204,48 @@ function CategoryAdder(props: {
       'div',
       {
         className: 'cr-add-tabs',
-        style: { gridTemplateColumns: `repeat(${groups.length || 1}, 1fr)` },
+        style: { gridTemplateColumns: hasCatalog ? 'repeat(2, 1fr)' : '1fr' },
       },
-      ...groups.map((grp) =>
-        h(
-          'button',
-          {
-            key: grp.key,
-            type: 'button',
-            className: `cr-add-tab ${grp.key} ${open === grp.key ? 'on' : ''}`,
-            onClick: () => activate(grp.key),
+      hasCatalog
+        ? h(
+            'button',
+            {
+              type: 'button',
+              className: `cr-add-tab ${open ? 'on' : ''}`,
+              onClick: () => (open ? close() : (setOpen(true), setQ(''))),
+            },
+            ic('Package', 15),
+            ' Del catálogo',
+            h('span', { className: 'pl' }, ic(open ? 'X' : 'Plus', 14))
+          )
+        : null,
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'cr-add-tab',
+          onClick: () => {
+            close();
+            onAddFree();
           },
-          ic(grp.icon, 15),
-          ` ${grp.label}`,
-          h('span', { className: 'pl' }, ic(open === grp.key ? 'X' : 'Plus', 14))
-        )
+        },
+        ic('PenLine', 15),
+        ' Concepto libre',
+        h('span', { className: 'pl' }, ic('Plus', 14))
       )
     ),
-    open && g
+    open
       ? h(
           'div',
           { className: 'cr-menu cr-add-menu' },
           h(
             'div',
             { className: 'cr-menu-search' },
-            h(
-              'span',
-              { className: `cr-type ${g.key}` },
-              ic(BUCKET_ICON[g.key], 12),
-              ` ${TYPE_TAG[g.key]}`
-            ),
             ic('Search', 15),
             h('input', {
               ref: input,
               value: q,
-              placeholder: `Buscar ${g.label.toLowerCase()}…`,
+              placeholder: 'Buscar producto o categoría…',
               onChange: (e: any) => setQ(e.target.value),
             } as any)
           ),
@@ -256,12 +264,16 @@ function CategoryAdder(props: {
                     close();
                   },
                 } as any,
-                h('span', { className: 'cr-result-ic' }, ic(g.icon, 15)),
+                h('span', { className: 'cr-result-ic' }, ic('Package', 15)),
                 h(
                   'div',
                   { className: 'cr-rtxt' },
                   h('div', { className: 'nm' }, p.name),
-                  chosen.has(p.id) ? h('div', { className: 'meta' }, 'ya en la venta') : null
+                  chosen.has(p.id)
+                    ? h('div', { className: 'meta' }, 'ya en la venta')
+                    : p.category
+                      ? h('div', { className: 'meta' }, p.category)
+                      : null
                 ),
                 h('span', { className: 'price' }, formatMoney(p.salePrice ?? 0))
               )
@@ -285,10 +297,11 @@ interface CounterSaleDialogProps {
  * Cobro rápido — venta de mostrador (diseño Claude Design "Cobro Rapido"). Drawer propio
  * (`.cr-drawer`, igual que "Registrar salida"), markup espejo de cobro-drawer.jsx con clases
  * `cr-*` de `styles/cobro-rapido.css` (colores, hover y animaciones del diseño). Cliente
- * opcional con buscador, productos por tipo, descuento del lote elegido (FEFO por defecto).
+ * opcional con buscador, productos del catálogo o conceptos libres, descuento del lote elegido
+ * (FEFO por defecto) en los productos con lotes.
  */
 export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDialogProps) {
-  const groups = useSaleCatalog();
+  const catalog = useSaleCatalog();
   const contacts = useContacts();
   const { settings: cfg } = useBillingSettings();
   const [cliente, setCliente] = useState<ContactOption | null>(null);
@@ -340,23 +353,40 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
       {
         key: seq() + prev.length,
         product: p,
+        description: p.name,
         quantity: 1,
         unitPrice: Number(p.salePrice) || 0,
         loteNro: reco?.nro ?? null,
       },
     ]);
   };
+  const addFree = () =>
+    setItems((prev) => [
+      ...prev,
+      {
+        key: seq() + prev.length,
+        product: null,
+        description: '',
+        quantity: 1,
+        unitPrice: 0,
+        loteNro: null,
+      },
+    ]);
   const patchLine = (key: string, patch: Partial<LineState>) =>
     setItems((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const removeLine = (key: string) => setItems((prev) => prev.filter((l) => l.key !== key));
 
-  const faltaStock = (it: LineState): boolean =>
-    esLoteado(it.product)
+  // Un concepto libre no tiene stock que controlar.
+  const faltaStock = (it: LineState): boolean => {
+    if (!it.product) return false;
+    return esLoteado(it.product)
       ? repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro).faltan > 0
       : it.quantity > it.product.stock;
+  };
   const haySinStock = items.some(faltaStock);
+  const sinDescripcion = items.some((it) => !it.product && !it.description.trim());
   const total = items.reduce((s, it) => s + it.quantity * it.unitPrice, 0);
-  const valid = items.length > 0 && !haySinStock && total > 0;
+  const valid = items.length > 0 && !haySinStock && !sinDescripcion && total > 0;
   const caja = MEDIO_CAJA[method] ?? { caja: false, nota: '' };
 
   // Medios ofrecidos + ajuste del total según el medio (recargo por crédito / redondeo efectivo).
@@ -396,8 +426,8 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
               }))
             : undefined;
           return {
-            productId: it.product.id,
-            description: it.product.name,
+            productId: it.product?.id ?? null,
+            description: it.product?.name ?? it.description.trim(),
             quantity: String(it.quantity),
             unitPrice: String(it.unitPrice),
             batches,
@@ -424,8 +454,8 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
   };
 
   // ── Item ──
-  const lotePick = (it: LineState) => {
-    const { tramos, faltan } = repartir(lotesFEFO(it.product.lotes), it.quantity, it.loteNro);
+  const lotePick = (it: LineState, product: SaleProduct) => {
+    const { tramos, faltan } = repartir(lotesFEFO(product.lotes), it.quantity, it.loteNro);
     const insuf = faltan > 0;
     let main: any,
       sub: any = null;
@@ -455,15 +485,15 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     );
   };
 
-  const stockLine = (it: LineState) => {
-    const insuf = it.quantity > it.product.stock;
+  const stockLine = (it: LineState, product: SaleProduct) => {
+    const insuf = it.quantity > product.stock;
     return h(
       'div',
       { className: `cr-stock-line ${insuf ? 'bad' : ''}` },
       ic(insuf ? 'TriangleAlert' : 'Box', 13),
       insuf
-        ? `Sin stock: hay ${it.product.stock} ${UNIDAD}`
-        : `Stock: ${it.product.stock.toLocaleString('es-AR')} ${UNIDAD} disponibles`
+        ? `Sin stock: hay ${product.stock} ${UNIDAD}`
+        : `Stock: ${product.stock.toLocaleString('es-AR')} ${UNIDAD} disponibles`
     );
   };
 
@@ -475,13 +505,27 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
       h(
         'div',
         { className: 'cr-item-head' },
-        h(
-          'span',
-          { className: `cr-type ${it.product.bucket}` },
-          ic(BUCKET_ICON[it.product.bucket], 12),
-          ` ${TYPE_TAG[it.product.bucket]}`
-        ),
-        h('span', { className: 'cr-item-name' }, it.product.name),
+        it.product
+          ? it.product.category
+            ? h(
+                'span',
+                { className: 'cr-type insumo' },
+                ic('Package', 12),
+                ` ${it.product.category}`
+              )
+            : null
+          : h('span', { className: 'cr-type insumo' }, ic('PenLine', 12), ' Concepto'),
+        it.product
+          ? h('span', { className: 'cr-item-name' }, it.product.name)
+          : h('input', {
+              className: 'cr-item-name cr-item-desc',
+              placeholder: 'Qué se cobra (ej.: Arreglo de pantalón)',
+              'aria-label': 'Descripción del concepto',
+              autoFocus: true,
+              maxLength: 120,
+              value: it.description,
+              onChange: (e: any) => patchLine(it.key, { description: e.target.value }),
+            } as any),
         h(
           'button',
           {
@@ -552,7 +596,11 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
           )
         )
       ),
-      esLoteado(it.product) ? lotePick(it) : stockLine(it),
+      it.product
+        ? esLoteado(it.product)
+          ? lotePick(it, it.product)
+          : stockLine(it, it.product)
+        : null,
       h(
         'div',
         { className: 'cr-item-calc' },
@@ -568,7 +616,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     );
   };
 
-  const editing = items.find((it) => it.key === loteFor);
+  const editing = items.find((it) => it.key === loteFor && it.product !== null);
 
   return h(
     'div',
@@ -599,7 +647,7 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
         h(
           'p',
           { className: 'cr-drawer-sub' },
-          'Venta de mostrador, sin consulta. Se cobra en el momento y entra a la caja del día.'
+          'Venta de mostrador: se cobra en el momento y entra a la caja del día.'
         )
       ),
       // Body
@@ -623,16 +671,19 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
           h(
             'span',
             { className: 'cr-label' },
-            'Productos ',
-            h('span', { className: 'cr-opt' }, '· elegí por tipo')
+            'Qué se vende ',
+            h(
+              'span',
+              { className: 'cr-opt' },
+              catalog.length > 0 ? '· del catálogo o un concepto libre' : '· un concepto libre'
+            )
           ),
-          groups.length > 0
-            ? h(CategoryAdder, {
-                groups,
-                chosen: new Set(items.map((it) => it.product.id)),
-                onAdd: addProduct,
-              })
-            : h('p', { className: 'cr-fld-hint' }, 'No hay catálogo disponible.'),
+          h(CatalogAdder, {
+            products: catalog,
+            chosen: new Set(items.flatMap((it) => (it.product ? [it.product.id] : []))),
+            onAdd: addProduct,
+            onAddFree: addFree,
+          }),
           items.length > 0
             ? h('div', { className: 'cr-items' }, ...items.map(itemCard))
             : h(
@@ -643,7 +694,9 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
                 h(
                   'div',
                   { className: 'cr-empty-s' },
-                  'Elegí medicamentos, vacunas o insumos del catálogo. Se van sumando acá.'
+                  catalog.length > 0
+                    ? 'Elegí productos del catálogo o cargá un concepto libre. Se van sumando acá.'
+                    : 'Cargá un concepto libre: qué se cobra y cuánto. Se van sumando acá.'
                 )
               )
         ),
@@ -755,11 +808,11 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
         )
       )
     ),
-    editing
+    editing?.product
       ? h(LoteEditor, {
           productName: editing.product.name,
           unidad: UNIDAD,
-          bucketIcon: editing.product.bucket === 'vacc' ? 'Syringe' : 'Pill',
+          bucketIcon: 'Package',
           lotes: editing.product.lotes,
           cant: editing.quantity,
           loteNro: editing.loteNro,
