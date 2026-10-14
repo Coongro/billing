@@ -139,6 +139,9 @@
 .cr-item.bad { border-color: var(--red-lt); box-shadow: 0 0 0 1px var(--red-lt); }
 .cr-item-head { display: flex; align-items: center; gap: 9px; }
 .cr-item-name { flex: 1; min-width: 0; font-family: var(--font-sans); font-size: 14px; font-weight: 500; color: var(--neutral-950); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-item-desc { height: 30px; padding: 0 9px; border: 0.5px solid var(--neutral-300); border-radius: 8px; background: var(--white); outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.cr-item-desc::placeholder { color: var(--neutral-500); font-weight: 400; }
+.cr-item-desc:focus { border-color: var(--neutral-950); box-shadow: var(--shadow-focus); }
 .cr-item-del { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; border: 0.5px solid var(--neutral-300); background: var(--white); color: var(--neutral-500); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
 .cr-item-del:hover { background: var(--red-soft); color: var(--red); border-color: var(--red-lt); }
 .cr-item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
