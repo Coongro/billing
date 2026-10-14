@@ -66,3 +66,15 @@ describe('sumar un concepto a una cuenta', () => {
     expect(linea).toMatchObject({ id: 'linea-previa' });
   });
 });
+
+describe('listar por cuenta', () => {
+  // Sin cuenta, Drizzle recibía `undefined` y la acción respondía un error interno.
+  it('sin cuenta responde un error de entrada, sin consultar la base', async () => {
+    const { db, ormQuery } = baseCon([]);
+
+    await expect(
+      new AccountLineRepository(db).listByAccount({} as { accountId: string })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(ormQuery).not.toHaveBeenCalled();
+  });
+});
