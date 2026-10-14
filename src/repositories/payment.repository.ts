@@ -6,6 +6,7 @@ import { accountTable } from '../schema/account.js';
 import { paymentTable } from '../schema/payment.js';
 import type { PaymentRow, NewPaymentRow } from '../schema/payment.js';
 import { toIsoUtc } from '../utils/datetime.js';
+import { requireId } from '../utils/errors.js';
 
 /** Pago con el cliente y el origen de su cuenta (para la Caja diaria). */
 export interface PaymentInRange {
@@ -91,8 +92,9 @@ export class PaymentRepository {
 
   /** Pagos de una cuenta, normalizados a ISO-UTC y ordenados del más reciente al más viejo. */
   async listByAccount({ accountId }: { accountId: string }): Promise<PaymentRow[]> {
+    const id = requireId(accountId, 'accountId');
     const rows = (await this.db.ormQuery((tx) =>
-      tx.select().from(paymentTable).where(eq(paymentTable.account_id, accountId))
+      tx.select().from(paymentTable).where(eq(paymentTable.account_id, id))
     )) as PaymentRow[];
     return rows
       .map((p) => ({ ...p, paid_at: toIsoUtc(p.paid_at) }))
