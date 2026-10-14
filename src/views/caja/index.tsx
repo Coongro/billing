@@ -567,7 +567,11 @@ export function CajaView() {
                 h(
                   UI.TableCell,
                   { colSpan: 5 },
-                  h(UI.ErrorDisplay, { title: 'Error', message: error, onRetry: reload })
+                  h(UI.ErrorDisplay, {
+                    title: 'Error',
+                    message: error,
+                    onRetry: () => void reload(),
+                  })
                 )
               )
             : dayPayments.length === 0
