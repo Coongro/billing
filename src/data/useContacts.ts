@@ -1,5 +1,7 @@
 import { getHostReact, actions } from '@coongro/plugin-sdk';
 
+import { rowsOf } from './contacts.js';
+
 const React = getHostReact();
 const { useState, useEffect } = React;
 
@@ -19,8 +21,11 @@ export function useContacts(): ContactOption[] {
     let active = true;
     void (async () => {
       try {
-        const rows = await actions.execute<ContactOption[]>('contacts.list');
-        if (active) setOptions((rows ?? []).map((c) => ({ id: c.id, name: c.name })));
+        const rows = await actions.execute<ContactOption[] | { items?: ContactOption[] }>(
+          'contacts.list',
+          { limit: 500 }
+        );
+        if (active) setOptions(rowsOf(rows).map((c) => ({ id: c.id, name: c.name })));
       } catch {
         if (active) setOptions([]);
       }

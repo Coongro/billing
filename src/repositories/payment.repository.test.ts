@@ -67,3 +67,15 @@ describe('registrar un cobro', () => {
     expect(pago).toMatchObject({ id: 'pago-1', account_id: 'cuenta-1' });
   });
 });
+
+describe('listar por cuenta', () => {
+  // Sin cuenta, Drizzle recibía `undefined` y la acción respondía un error interno.
+  it('sin cuenta responde un error de entrada, sin consultar la base', async () => {
+    const { db, ormQuery } = baseCon([]);
+
+    await expect(
+      new PaymentRepository(db).listByAccount({} as { accountId: string })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(ormQuery).not.toHaveBeenCalled();
+  });
+});

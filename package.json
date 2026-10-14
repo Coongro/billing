@@ -1,6 +1,6 @@
 {
   "name": "@coongro/billing",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Cuenta de atención y líneas de cobro (honorarios, servicios, vacunas, productos). Ledger interno reutilizable, no fiscal — la facturación AFIP es un add-on aparte.",
   "main": "dist/index.js",
@@ -44,7 +44,8 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@coongro/contacts": ">=0.1.0"
+    "@coongro/contacts": ">=0.1.0",
+    "@coongro/payments": ">=0.1.0"
   },
   "peerDependencies": {
     "@coongro/plugin-sdk": ">=0.1.0"
