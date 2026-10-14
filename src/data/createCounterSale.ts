@@ -111,6 +111,8 @@ export async function createCounterSale(input: {
   contactId?: string | null;
   method: string;
   lines: CounterSaleLine[];
+  /** Nota del pago (con QR: el proveedor y el comprobante de la orden). */
+  paymentNote?: string;
 }): Promise<void> {
   const valid = input.lines.filter(
     (l) => Number(l.quantity) > 0 && (l.productId || l.description.trim())
@@ -193,6 +195,7 @@ export async function createCounterSale(input: {
       accountId: account.id,
       amount: String(finalTotal),
       method: input.method,
+      ...(input.paymentNote ? { notes: input.paymentNote } : {}),
     });
   }
 

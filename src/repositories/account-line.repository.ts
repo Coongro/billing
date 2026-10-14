@@ -6,6 +6,7 @@ import { accountLineTable } from '../schema/account-line.js';
 import type { AccountLineRow, NewAccountLineRow } from '../schema/account-line.js';
 import { accountTable } from '../schema/account.js';
 import { toIsoUtc } from '../utils/datetime.js';
+import { requireId } from '../utils/errors.js';
 
 /** Línea con la fecha, el origen y la dirección de su cuenta (para reportes/agregados). */
 export interface AccountLineInRange {
@@ -27,8 +28,9 @@ export class AccountLineRepository {
 
   /** Líneas de una cuenta. */
   async listByAccount({ accountId }: { accountId: string }): Promise<AccountLineRow[]> {
+    const id = requireId(accountId, 'accountId');
     return this.db.ormQuery((tx) =>
-      tx.select().from(accountLineTable).where(eq(accountLineTable.account_id, accountId))
+      tx.select().from(accountLineTable).where(eq(accountLineTable.account_id, id))
     );
   }
 

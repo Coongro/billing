@@ -11,9 +11,16 @@ export const PAYMENT_METHODS = [
   { value: 'credito', label: 'Crédito' },
 ];
 
-export const METHOD_LABEL: Record<string, string> = Object.fromEntries(
-  PAYMENT_METHODS.map((m) => [m.value, m.label])
-);
+/**
+ * Cobro con QR por el motor de pagos (`@coongro/payments`): no es un medio fijo, aparece solo si
+ * hay un proveedor configurado que cobre con QR (Mercado Pago u otro).
+ */
+export const QR_METHOD = 'qr';
+
+export const METHOD_LABEL: Record<string, string> = {
+  ...Object.fromEntries(PAYMENT_METHODS.map((m) => [m.value, m.label])),
+  [QR_METHOD]: 'QR',
+};
 
 /**
  * Agrupación de medios por DISPONIBILIDAD de la plata (no por tipo). Sale de la realidad AR:
