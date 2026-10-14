@@ -318,6 +318,18 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     return () => window.removeEventListener('keydown', onKey);
   }, [open, loteFor, qrOpen, onOpenChange]);
 
+  const methodEnabled =
+    method === 'efectivo' ||
+    (method === QR_METHOD && qrProvider !== null) ||
+    (method === 'transferencia' && cfg.paymentsTransferencia) ||
+    (method === 'debito' && cfg.paymentsDebito) ||
+    (method === 'credito' && cfg.paymentsCredito);
+  // Antes del `return null`: un hook después cambia la cantidad de hooks al abrir la ventana.
+  useEffect(() => {
+    // Si el medio elegido se deshabilitó en settings, volver a efectivo (siempre disponible).
+    if (!methodEnabled) setMethod('efectivo');
+  }, [methodEnabled]);
+
   if (!open) return null;
 
   const seq = () => `l${Date.now()}${Math.round(items.length)}`;
@@ -352,16 +364,6 @@ export function CounterSaleDialog({ open, onOpenChange, onSaved }: CounterSaleDi
     ...enabledMethods(cfg),
     ...(qrProvider ? [{ value: QR_METHOD, label: `QR · ${qrProvider.label}` }] : []),
   ];
-  const methodEnabled =
-    method === 'efectivo' ||
-    (method === QR_METHOD && qrProvider !== null) ||
-    (method === 'transferencia' && cfg.paymentsTransferencia) ||
-    (method === 'debito' && cfg.paymentsDebito) ||
-    (method === 'credito' && cfg.paymentsCredito);
-  useEffect(() => {
-    // Si el medio elegido se deshabilitó en settings, volver a efectivo (siempre disponible).
-    if (!methodEnabled) setMethod('efectivo');
-  }, [methodEnabled]);
   const surcharge = method === 'credito' ? creditSurcharge(total, cfg.paymentsCreditSurcharge) : 0;
   const roundingDelta =
     method === 'efectivo' && surcharge === 0 ? roundCash(total, cfg.cashRounding) - total : 0;
